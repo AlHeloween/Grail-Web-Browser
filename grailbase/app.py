@@ -9,6 +9,11 @@ import utils
 
 
 class Application:
+    """The base class for the Grail application.
+
+    This class provides the basic application infrastructure, including
+    preferences management, icon path setup, and MIME type guessing.
+    """
     def __init__(self, prefs=None):
         utils._grail_app = self
         if prefs is None:

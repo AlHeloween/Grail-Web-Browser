@@ -63,9 +63,6 @@ Options:
 
 def main(args=None):
     prefs = grailbase.GrailPrefs.AllPreferences()
-    # XXX Disable cache for NT
-    if sys.platform == 'win32':
-        prefs.Set('disk-cache', 'size', '0')
     global ilu_tk
     ilu_tk = 0
     if prefs.GetBoolean('security', 'enable-ilu'):
@@ -140,7 +137,7 @@ def main(args=None):
         except ImportError, e:
             # Only catch this is grailrc itself doesn't import,
             # otherwise propogate.
-            if string.split(e.args[0])[-1] != "grailrc":
+            if e.args[0].split()[-1] != "grailrc":
                 raise
         except:
             app.exception_dialog('during import of startup file')
@@ -160,6 +157,7 @@ def main(args=None):
 
 
 class URLReadWrapper:
+    """A wrapper for a URL read object that provides a file-like interface."""
 
     def __init__(self, api, meta):
         self.api = api
@@ -192,6 +190,7 @@ class URLReadWrapper:
             api.close()
 
 class SocketQueue:
+    """A queue for managing a pool of sockets."""
 
     def __init__(self, max_sockets):
         self.max = max_sockets
@@ -232,8 +231,11 @@ class SocketQueue:
             self.open = self.open - 1
 
 class Application(BaseApplication.BaseApplication):
+    """The main application class for the Grail browser.
 
-    """The application class represents a group of browser windows."""
+    This class manages the application's lifecycle, including windows,
+    preferences, and the cache.
+    """
 
     def __init__(self, prefs=None, display=None):
         self.root = Tk(className='Grail', screenName=display)

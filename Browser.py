@@ -46,12 +46,11 @@ if _iconxbm_file:
 
 
 class Browser:
-    """The Browser class provides the top-level GUI.
+    """The main browser window.
 
-    It is a blatant rip-off of Mosaic's look and feel, with menus, a
-    stop button, a URL display/entry area, and (last but not least) a
-    viewer area.  But then, so are all other web browsers. :-)
-
+    This class creates the main browser window and manages the user interface,
+    including the menu bar, URL entry field, and status bar. It also
+    instantiates the Viewer class to display the web page content.
     """
     def __init__(self, master, app=None,
                  width=None, height=None,
