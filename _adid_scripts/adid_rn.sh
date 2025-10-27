@@ -1,0 +1,4 @@
+adid apply --script "$@"
+
+
+

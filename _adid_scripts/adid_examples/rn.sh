@@ -1,0 +1,3 @@
+./../adid apply --script "$@"
+
+
