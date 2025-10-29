@@ -8,13 +8,35 @@ TkPhotoImage = PhotoImage
 
 
 class ImageTempFileReader(TempFileReader):
+    """A file reader for images that handles asynchronous loading and format
+    conversion.
+
+    This class extends TempFileReader to handle image-specific details like
+    content-type filtering and error handling for authentication.
+
+    Attributes:
+        image: The AsyncImage object being loaded.
+        url: The URL of the image.
+    """
 
     def __init__(self, context, api, image):
+        """Initializes the ImageTempFileReader.
+
+        Args:
+            context: The URI context.
+            api: The URL API object for the image.
+            image: The AsyncImage object.
+        """
         self.image = image
         self.url = self.image.url
         TempFileReader.__init__(self, context, api)
 
     def handle_meta(self, errcode, errmsg, headers):
+        """Handles the response headers.
+
+        This method checks the Content-Type and sets up a filter pipeline if
+        necessary.
+        """
         TempFileReader.handle_meta(self, errcode, errmsg, headers)
         if errcode == 200:
             try:
@@ -39,10 +61,16 @@ class ImageTempFileReader(TempFileReader):
         }
 
     def handle_done(self):
+        """Callback for when the image has been successfully loaded."""
         self.image.set_file(self.getfilename())
         self.cleanup()
 
     def handle_error(self, errcode, errmsg, headers):
+        """Handles an error that occurred while loading the image.
+
+        This method handles authentication challenges (401) by prompting the
+        user for credentials.
+        """
         if errcode == 401:
             if headers.has_key('www-authenticate'):
                 cred_headers = {}
@@ -61,11 +89,13 @@ class ImageTempFileReader(TempFileReader):
         self.cleanup()
 
     def stop(self):
+        """Stops loading the image."""
         TempFileReader.stop(self)
         if self.image:
             self.image.reader = None
 
     def cleanup(self):
+        """Cleans up resources used by the reader."""
         self.image = None
         import os
         try:
@@ -77,8 +107,28 @@ class ImageTempFileReader(TempFileReader):
 
 
 class BaseAsyncImage:
+    """A base class for asynchronously loaded images.
+
+    This class provides the core functionality for loading an image from a URL
+    and displaying it. It can be mixed with a Tkinter or PIL PhotoImage class.
+
+    Attributes:
+        context: The URI context.
+        url: The URL of the image.
+        reader: The ImageTempFileReader used to load the image.
+        loaded: A flag indicating whether the image has been loaded.
+        headers: A dictionary of headers to send with the request.
+        reload: A flag indicating a reload.
+    """
 
     def setup(self, context, url, reload):
+        """Initializes the BaseAsyncImage.
+
+        Args:
+            context: The URI context.
+            url: The URL of the image.
+            reload: A flag indicating a reload.
+        """
         self.context = context
         self.url = url
         self.reader = None
@@ -90,6 +140,14 @@ class BaseAsyncImage:
             self.reload = 0
 
     def load_synchronously(self, context=None):
+        """Loads the image synchronously.
+
+        Args:
+            context: An optional URI context.
+
+        Returns:
+            True if the image was loaded successfully, False otherwise.
+        """
         if not self.loaded:
             self.start_loading(context)
             if self.reader:
@@ -97,6 +155,12 @@ class BaseAsyncImage:
         return self.loaded
 
     def start_loading(self, context=None, reload=0):
+        """Starts loading the image asynchronously.
+
+        Args:
+            context: An optional URI context.
+            reload: An optional flag indicating a reload.
+        """
         # seems that the reload=1 when you click on an image that
         # you had stopped loading
         if context: self.context = context
@@ -105,7 +169,7 @@ class BaseAsyncImage:
         try:
             api = self.context.app.open_url(self.url, 'GET', self.headers,
                                             self.reload or reload) 
-        except IOError, msg:
+        except IOError as msg:
             self.show_bad()
             return
         cached_file, content_type = api.tk_img_access()
@@ -121,12 +185,18 @@ class BaseAsyncImage:
             self.reader = ImageTempFileReader(self.context, api, self)
 
     def stop_loading(self):
+        """Stops loading the image."""
         if not self.reader:
             return
         self.reader.kill()
         self.show_bad()
 
     def set_file(self, filename):
+        """Sets the image from a file.
+
+        Args:
+            filename: The path to the image file.
+        """
         self.blank()
         self.do_color_magic()
         try:
@@ -137,25 +207,38 @@ class BaseAsyncImage:
             self.loaded = 1
 
     def do_color_magic(self):
+        """Sets the transparent color for GIFs."""
         self.context.root.tk.setvar("TRANSPARENT_GIF_COLOR",
                                     self.context.viewer.text["background"])
 
     def set_error(self, errcode, errmsg, headers):
+        """Handles an error that occurred while loading the image.
+
+        This method handles redirects (301, 302) by starting a new load
+        with the new URL.
+        """
         self.loaded = 0
         if errcode in (301, 302) and headers.has_key('location'):
             self.url = headers['location']
             self.start_loading()
 
     def is_reloading(self):
+        """Checks if the image is currently being reloaded."""
         return self.reload and not self.loaded
 
     def get_load_status(self):
+        """Gets the current load status of the image.
+
+        Returns:
+            A string: 'loading' or 'idle'.
+        """
         if self.reader:
             return 'loading'
         else:
             return 'idle'
 
     def show_bad(self):
+        """Displays a 'bad image' icon."""
         self.blank()
         try:
             self['file'] = grailutil.which(
@@ -164,6 +247,7 @@ class BaseAsyncImage:
             pass
 
     def show_busy(self):
+        """Displays a 'busy' icon."""
         self.blank()
         try:
             self['file'] = grailutil.which(
@@ -173,26 +257,49 @@ class BaseAsyncImage:
 
 
 class TkAsyncImage(BaseAsyncImage, TkPhotoImage):
+    """An asynchronously loaded image that uses the standard Tkinter PhotoImage."""
 
     def __init__(self, context, url, reload=0, **kw):
-        apply(TkPhotoImage.__init__, (self,), kw)
+        """Initializes the TkAsyncImage.
+
+        Args:
+            context: The URI context.
+            url: The URL of the image.
+            reload: A flag indicating a reload.
+            **kw: Additional keyword arguments for the PhotoImage.
+        """
+        TkPhotoImage.__init__(self, **kw)
         self.setup(context, url, reload)
 
     def get_cache_key(self):
+        """Gets the cache key for the image.
+
+        Returns:
+            A tuple of (url, 0, 0).
+        """
         return self.url, 0, 0
 
 
 class PILAsyncImageSupport(BaseAsyncImage):
-    #
-    # We can't actually inherit from the PIL PhotoImage, so we'll be a mixin
-    # that really takes over.  A new class will be created from this & the
-    # PIL PhotoImage which forms the actual implementation class iff PIL is
-    # both available and enabled.
-    #
+    """A mixin class that provides support for the Python Imaging Library (PIL).
+
+    This class handles the loading, resizing, and transparency of images using
+    PIL.
+    """
     __width = 0
     __height = 0
 
     def __init__(self, context, url, reload=0, width=None, height=None, **kw):
+        """Initializes the PILAsyncImageSupport.
+
+        Args:
+            context: The URI context.
+            url: The URL of the image.
+            reload: A flag indicating a reload.
+            width: The desired width of the image.
+            height: The desired height of the image.
+            **kw: Additional keyword arguments.
+        """
         import ImageTk
         self.setup(context, url, reload)
         master = kw.get("master")
@@ -209,21 +316,23 @@ class PILAsyncImageSupport(BaseAsyncImage):
         self.__height = height or 0
 
     def blank(self):
+        """Blanks the image."""
         self.image.blank()
 
     def get_cache_key(self):
-        #
-        # Note that two different cache keys may be generated for an image
-        # depending on how they are specified.  In particular, the keys
-        # (URL, 0, 0) and (URL, WIDTH, HEIGHT) may be generated for the same
-        # real image (not Image object) if WIDTH and HEIGHT are the default
-        # dimensions of the image and the image is specified both with and
-        # without size hints.  This still generates no more than two distinct
-        # keys for otherwise identical image objects.
-        #
+        """Gets the cache key for the image.
+
+        Returns:
+            A tuple of (url, width, height).
+        """
         return self.url, self.__width, self.__height
 
     def set_file(self, filename):
+        """Sets the image from a file, handling resizing and transparency.
+
+        Args:
+            filename: The path to the image file.
+        """
         import Image
         try:
             im = Image.open(filename)
@@ -271,26 +380,30 @@ class PILAsyncImageSupport(BaseAsyncImage):
         self.image['height'] = h
 
     def width(self):
+        """Gets the width of the image."""
         return self.__width
 
     def height(self):
+        """Gets the height of the image."""
         return self.__height
 
     def __setitem__(self, key, value):
+        """Sets an item on the underlying PhotoImage."""
         if key == "file":
             self.do_color_magic()
         self.image[key] = value
 
 
 def p_to_rgb(im, rgb):
-    """Translate a P-mode image with transparency to an RGB image. 
+    """Translates a P-mode image with transparency to an RGB image.
 
-    im
-        The transparent image.
+    Args:
+        im: The transparent image.
+        rgb: The RGB-value to use for the transparent areas. This should be
+            a 3-tuple of integers, 8 bits for each band.
 
-    rgb
-        The RGB-value to use for the transparent areas.  This should be
-        a 3-tuple of integers, 8 bits for each band.
+    Returns:
+        A new RGB image.
     """
     import Image
     new_im = Image.new("RGB", im.size, rgb)
@@ -301,14 +414,15 @@ def p_to_rgb(im, rgb):
 
 
 def rgba_to_rgb(im, rgb):
-    """Translate an RGBA-mode image to an RGB image. 
+    """Translates an RGBA-mode image to an RGB image.
 
-    im
-        The transparent image.
+    Args:
+        im: The transparent image.
+        rgb: The RGB-value to use for the transparent areas. This should be
+            a 3-tuple of integers, 8 bits for each band.
 
-    rgb
-        The RGB-value to use for the transparent areas.  This should be
-        a 3-tuple of integers, 8 bits for each band.
+    Returns:
+        A new RGB image.
     """
     import Image
     new_im = Image.new("RGB", im.size, rgb)
@@ -317,10 +431,13 @@ def rgba_to_rgb(im, rgb):
 
 
 def xbm_to_rgba(im):
-    """Translate a XBM image to an RGBA image. 
+    """Translates an XBM image to an RGBA image.
 
-    im
-        The XBM image.
+    Args:
+        im: The XBM image.
+
+    Returns:
+        A new RGBA image.
     """
     import Image
     # invert & mask so we get transparency
@@ -331,13 +448,11 @@ def xbm_to_rgba(im):
 
 
 def pil_installed():
-    # Determine if the Python Imaging Library is available.
-    #
-    # Note that "import Image" is not sufficient to test the availability of
-    # the image loading capability.  Image can be imported without _imaging
-    # and still supports identification of file types.  Grail requires _imaging
-    # to support image loading.
-    #
+    """Checks if the Python Imaging Library is installed and working.
+
+    Returns:
+        True if PIL is installed, False otherwise.
+    """
     try:
         import _imaging
         import Image
@@ -355,7 +470,11 @@ def pil_installed():
 _pil_allowed = None
 
 def isPILAllowed():
-    """Return true iff PIL should be used by the caller."""
+    """Checks if the user has enabled PIL support.
+
+    Returns:
+        True if PIL is enabled, False otherwise.
+    """
     global _pil_allowed
     if _pil_allowed is None:
         app = grailutil.get_grailapp()
@@ -365,6 +484,9 @@ def isPILAllowed():
 
 
 def AsyncImage(context, url, reload=0, **kw):
+    """A factory function that returns either a TkAsyncImage or a
+    PILAsyncImage, depending on whether PIL is enabled.
+    """
     # Check the enable-pil preference and replace this function
     # with the appropriate implementation in the module namespace:
     #
@@ -376,4 +498,4 @@ def AsyncImage(context, url, reload=0, **kw):
         AsyncImage = PILAsyncImage
     else:
         AsyncImage = TkAsyncImage
-    return apply(AsyncImage, (context, url, reload), kw)
+    return AsyncImage(context, url, reload, **kw)

@@ -21,15 +21,31 @@ SYSPREFSFILENAME = os.path.join('data', 'grail-defaults')
 verbose = 0
 
 class Preferences:
-    """Get and set fields in a customization-values file."""
+    """Manages reading and writing of a single preferences file.
 
-    # We maintain a dictionary of the established self.saved preferences,
-    # self.mods changes, which are incorporated into the established on
-    # self.Save(), and self.deleted, which indicates settings to be omitted
-    # during save (for reversion to "factory default", ie system, settings).
+    This class handles a single preferences file, tracking saved settings,
+    modifications, and deletions. It provides methods for getting, setting,
+    and deleting preferences, as well as for saving the changes back to the
+    file.
+
+    Attributes:
+        filename: The path to the preferences file.
+        mods: A dictionary of modified preferences that have not yet been
+            saved.
+        deleted: A dictionary of preferences that have been deleted.
+        saved: A dictionary of the preferences as last read from the file.
+        last_mtime: The last modification time of the file.
+        modified: A flag indicating whether the preferences have been modified.
+    """
 
     def __init__(self, filename, readonly=0):
-        """Initiate from FILENAME with MODE (default 'r' read-only)."""
+        """Initializes the Preferences object.
+
+        Args:
+            filename: The path to the preferences file.
+            readonly: A flag indicating whether the file should be treated as
+                read-only.
+        """
         self.filename = filename
         self.mods = {}                  # Changed settings not yet saved.
         self.deleted = {}               # Settings overridden, not yet saved.
@@ -44,47 +60,96 @@ class Preferences:
         self.modified = 0
 
     def Get(self, group, cmpnt):
-        """Get preference or raise KeyError if not found."""
-        if self.mods.has_key(group) and self.mods[group].has_key(cmpnt):
+        """Gets a preference value.
+
+        Checks for the preference in modified, then saved preferences.
+
+        Args:
+            group: The preference group.
+            cmpnt: The preference component.
+
+        Returns:
+            The value of the preference.
+
+        Raises:
+            KeyError: If the preference is not found.
+        """
+        if group in self.mods and cmpnt in self.mods[group]:
             return self.mods[group][cmpnt]
-        elif self.saved.has_key(group) and self.saved[group].has_key(cmpnt):
+        elif group in self.saved and cmpnt in self.saved[group]:
             return self.saved[group][cmpnt]
         else:
-            raise KeyError, "Preference %s not found" % ((group, cmpnt),)
+            raise KeyError("Preference %s not found" % ((group, cmpnt),))
 
     def Set(self, group, cmpnt, val):
+        """Sets a preference value.
+
+        The value is stored in the `mods` dictionary until saved.
+
+        Args:
+            group: The preference group.
+            cmpnt: The preference component.
+            val: The new value for the preference.
+        """
         self.modified = 1
-        if not self.mods.has_key(group):
+        if group not in self.mods:
             self.mods[group] = {}
         self.mods[group][cmpnt] = str(val)
-        if self.deleted.has_key(group) and self.deleted[group].has_key(cmpnt):
+        if group in self.deleted and cmpnt in self.deleted[group]:
             # Undelete.
             del self.deleted[group][cmpnt]
 
-    def __delitem__(self, (group, cmpnt)):
-        """Inhibit preference (GROUP, COMPONENT) from being seen or saved."""
+    def __delitem__(self, key):
+        """Marks a preference for deletion.
+
+        The preference is added to the `deleted` dictionary and will be
+        removed from the saved preferences when the file is saved.
+
+        Args:
+            key: A tuple of (group, component).
+        """
+        group, cmpnt = key
         self.Get(group, cmpnt)  # Verify item existence.
-        if not self.deleted.has_key(group):
+        if group not in self.deleted:
             self.deleted[group] = {}
         self.deleted[group][cmpnt] = 1
 
     def items(self):
-        """Return a list of ((group, cmpnt), value) tuples."""
+        """Returns a list of all preferences.
+
+        This method consolidates saved and modified preferences, with
+        modifications taking precedence. Deleted preferences are excluded.
+
+        Returns:
+            A list of ((group, component), value) tuples.
+        """
         got = {}
         deleted = self.deleted
         # Consolidate established and changed, with changed having precedence:
-        for g, comps in self.saved.items() + self.mods.items():
+        for g, comps in list(self.saved.items()) + list(self.mods.items()):
             for c, v in comps.items():
-                if not (deleted.has_key(g) and deleted[g].has_key(c)):
+                if not (g in deleted and c in deleted[g]):
                     got[(g,c)] = v
         return got.items()
 
     def Tampered(self):
-        """Has the file been externally modified?"""
+        """Checks if the preferences file has been modified externally.
+
+        Returns:
+            True if the file has been modified since it was last read,
+            False otherwise.
+        """
         return os.stat(self.filename)[9] != self.mtime
 
     def Editable(self):
-        """Ensure that the user has a graildir and it is editable."""
+        """Checks if the preferences file is editable.
+
+        This method will also attempt to create the user's grail directory
+        and the preferences file if they do not exist.
+
+        Returns:
+            True if the file is editable, False otherwise.
+        """
         if not utils.establish_dir(os.path.split(self.filename)[0]):
             return 0
         elif os.path.exists(self.filename):
@@ -98,7 +163,11 @@ class Preferences:
                 return 0
 
     def Save(self):
-        """Write the preferences out to file, if possible."""
+        """Saves the preferences to the file.
+
+        This method writes all modified preferences to the file, after
+        creating a backup of the original file.
+        """
         try: os.rename(self.filename, self.filename + '.bak')
         except os.error: pass           # No file to backup.
 
@@ -116,11 +185,11 @@ class Preferences:
         deleted = self.deleted
         for g, comps in self.mods.items():
             for c, v in comps.items():
-                if not (deleted.has_key(g) and deleted[g].has_key(c)):
-                    if not self.saved.has_key(g):
+                if not (g in deleted and c in deleted[g]):
+                    if g not in self.saved:
                         self.saved[g] = {}
                     self.saved[g][c] = v
-                elif self.saved.has_key(g) and self.saved[g].has_key(c):
+                elif g in self.saved and c in self.saved[g]:
                     # Deleted - remove from saved version:
                     del self.saved[g][c]
         # ... and reinit mods and deleted records:
@@ -128,13 +197,26 @@ class Preferences:
         self.deleted = {}
 
 class AllPreferences:
-    """Maintain the combination of user and system preferences."""
+    """Manages the combination of user and system preferences.
+
+    This class provides a unified view of preferences from both the user's
+    preferences file and the system-wide defaults. It handles loading,
+    getting, setting, and saving preferences, as well as managing callbacks
+    for preference changes.
+
+    Attributes:
+        user: A Preferences object for the user's preferences file.
+        sys: A Preferences object for the system's preferences file.
+        callbacks: A dictionary of callbacks to be invoked when preferences
+            are changed.
+    """
     def __init__(self):
+        """Initializes the AllPreferences object."""
         self.load()
         self.callbacks = {}
 
     def load(self):
-        """Load preferences from scratch, discarding any mods and deletions."""
+        """Loads both user and system preferences from their respective files."""
         self.user = Preferences(os.path.join(utils.getgraildir(),
                                              USERPREFSFILENAME))
         self.sys = Preferences(os.path.join(utils.get_grailroot(),
@@ -142,34 +224,56 @@ class AllPreferences:
                                1)
 
     def AddGroupCallback(self, group, callback):
-        """Register callback to be invoked when saving GROUP changed prefs.
+        """Registers a callback to be invoked when preferences in a group are
+        changed.
 
         Each callback will be invoked only once per concerned group per
         save (even if multiply registered for that group), and callbacks
-        within a group will be invoked in the order they were registered."""
-        if self.callbacks.has_key(group):
+        within a group will be invoked in the order they were registered.
+
+        Args:
+            group: The preference group to monitor.
+            callback: The function to call when the group's preferences
+                change.
+        """
+        if group in self.callbacks:
             if callback not in self.callbacks[group]:
                 self.callbacks[group].append(callback)
         else:
             self.callbacks[group] = [callback]
 
     def RemoveGroupCallback(self, group, callback):
-        """Remove registered group-prefs callback func.
+        """Removes a registered group-prefs callback func.
 
-        Silently ignores unregistered callbacks."""
+        Silently ignores unregistered callbacks.
+
+        Args:
+            group: The preference group.
+            callback: The callback function to remove.
+        """
         try:
             self.callbacks[group].remove(callback)
-        except ValueError, KeyError:
+        except (ValueError, KeyError):
             pass
 
     # Getting:
 
     def Get(self, group, cmpnt, factory=0):
-        """Get pref GROUP, COMPONENT, trying the user then the sys prefs.
+        """Gets a preference value, trying user preferences first, then system
+        defaults.
 
-        Optional FACTORY true means get system default ("factory") value.
+        Args:
+            group: The preference group.
+            cmpnt: The preference component.
+            factory: If True, gets the system default ("factory") value
+                directly.
 
-        Raise KeyError if not found."""
+        Returns:
+            The value of the preference.
+
+        Raises:
+            KeyError: If the preference is not found.
+        """
         if factory:
             return self.sys.Get(group, cmpnt)
         else:
@@ -179,29 +283,51 @@ class AllPreferences:
                 return self.sys.Get(group, cmpnt)
 
     def GetTyped(self, group, cmpnt, type_name, factory=0):
-        """Get preference, using CONVERTER to convert to type NAME.
+        """Gets a preference and converts it to a specific type.
 
-        Optional SYS true means get system default value.
+        Args:
+            group: The preference group.
+            cmpnt: The preference component.
+            type_name: The name of the type to convert to (e.g., 'int',
+                'float', 'Boolean').
+            factory: If True, gets the system default value.
 
-        Raise KeyError if not found, TypeError if value is wrong type."""
+        Returns:
+            The typed value of the preference.
+
+        Raises:
+            KeyError: If the preference is not found.
+            TypeError: If the value cannot be converted to the specified type.
+        """
         val = self.Get(group, cmpnt, factory)
         try:
             return typify(val, type_name)
         except TypeError:
-            raise TypeError, ('%s should be %s: %s'
-                               % (str((group, cmpnt)), type_name, `val`))
+            raise TypeError('%s should be %s: %s'
+                               % (str((group, cmpnt)), type_name, repr(val)))
 
     def GetInt(self, group, cmpnt, factory=0):
+        """Gets an integer preference."""
         return self.GetTyped(group, cmpnt, "int", factory)
     def GetFloat(self, group, cmpnt, factory=0):
+        """Gets a float preference."""
         return self.GetTyped(group, cmpnt, "float", factory)
     def GetBoolean(self, group, cmpnt, factory=0):
+        """Gets a Boolean preference."""
         return self.GetTyped(group, cmpnt, "Boolean", factory)
 
     def GetGroup(self, group):
-        """Get a list of ((group,cmpnt), value) tuples in group."""
+        """Gets all preferences in a given group.
+
+        Args:
+            group: The name of the group.
+
+        Returns:
+            A list of ((group, component), value) tuples for the specified
+            group.
+        """
         got = []
-        prefix = string.lower(group) + '--'
+        prefix = group.lower() + '--'
         l = len(prefix)
         for it in self.items():
             if it[0][0] == group:
@@ -209,6 +335,14 @@ class AllPreferences:
         return got
 
     def items(self):
+        """Returns a list of all preferences, combining user and system
+        settings.
+
+        User settings override system settings.
+
+        Returns:
+            A list of ((group, component), value) tuples.
+        """
         got = {}
         for it in self.sys.items():
             got[it[0]] = it[1]
@@ -219,20 +353,39 @@ class AllPreferences:
     # Editing:
 
     def Set(self, group, cmpnt, val):
-        """Assign GROUP,COMPONENT with VALUE."""
+        """Sets a preference value in the user's preferences.
+
+        Args:
+            group: The preference group.
+            cmpnt: The preference component.
+            val: The new value.
+        """
         if self.Get(group, cmpnt) != val:
             self.user.Set(group, cmpnt, val)
 
     def Editable(self):
-        """Identify or establish user's prefs file, or IO error."""
+        """Checks if the user's preferences file is editable.
+
+        Returns:
+            True if the file is editable, False otherwise.
+        """
         return self.user.Editable()
 
     def Tampered(self):
-        """True if user prefs file modified since we read them."""
+        """Checks if the user's preferences file has been modified externally.
+
+        Returns:
+            True if the file has been tampered with, False otherwise.
+        """
         return self.user.Tampered()
 
     def Save(self):
-        """Save (only) values different than sys defaults in the users file."""
+        """Saves the user's preferences to their file.
+
+        This method will only save values that are different from the system
+        defaults. After saving, it will invoke any registered callbacks for
+        the modified preference groups.
+        """
         # Callbacks are processed after the save.
 
         # Identify the pending callbacks before user-prefs culling:
@@ -252,52 +405,72 @@ class AllPreferences:
         try:
             self.user.Save()
         except IOError:
-            print "Failed save of user prefs."
+            print("Failed save of user prefs.")
 
         # Process the callbacks:
         callbacks, did_callbacks = self.callbacks, {}
         for group in pending_groups:
-            if self.callbacks.has_key(group):
+            if group in self.callbacks:
                 for callback in callbacks[group]:
                     # Ensure each callback is invoked only once per save,
                     # in order:
-                    if not did_callbacks.has_key(callback):
+                    if callback not in did_callbacks:
                         did_callbacks[callback] = 1
-                        apply(callback, ())
+                        callback()
 
 def make_key(group, cmpnt):
-    """Produce a key from preference GROUP, COMPONENT strings."""
+    """Creates a preference key string from a group and component.
+
+    Args:
+        group: The preference group.
+        cmpnt: The preference component.
+
+    Returns:
+        A string in the format "group--component".
+    """
     return string.lower(group + '--' + cmpnt)
                     
 
 def typify(val, type_name):
-    """Convert string value to specific type, or raise type err if impossible.
+    """Converts a string value to a specified type.
 
-    Type is one of 'string', 'int', 'float', or 'Boolean' (note caps)."""
+    Args:
+        val: The string value to convert.
+        type_name: The name of the type to convert to ('string', 'int',
+            'float', or 'Boolean').
+
+    Returns:
+        The converted value.
+
+    Raises:
+        TypeError: If the value cannot be converted to the specified type.
+        ValueError: If the type_name is not supported.
+    """
     try:
         if type_name == 'string':
             return val
         elif type_name == 'int':
-            return string.atoi(val)
+            return int(val)
         elif type_name == 'float':
-            return string.atof(val)
+            return float(val)
         elif type_name == 'Boolean':
-            i = string.atoi(val)
+            i = int(val)
             if i not in (0, 1):
-                raise TypeError, '%s should be Boolean' % `val`
+                raise TypeError('%s should be Boolean' % repr(val))
             return i
     except ValueError:
-            raise TypeError, '%s should be %s' % (`val`, type_name)
+            raise TypeError('%s should be %s' % (repr(val), type_name))
     
-    raise ValueError, ('%s not supported - must be one of %s'
-                       % (`type_name`, ['string', 'int', 'float', 'Boolean']))
+    raise ValueError('%s not supported - must be one of %s'
+                       % (repr(type_name), ['string', 'int', 'float', 'Boolean']))
     
 
 def test():
-    """Exercise preferences mechanisms.
+    """Exercises the preferences mechanisms.
 
-    Note that this test alters and then restores a setting in the user's
-    prefs  file."""
+    This function tests reading, setting, and saving preferences. It
+    modifies and then restores a setting in the user's preferences file.
+    """
     sys.path.insert(0, "../utils")
     from testing import exercise
     
@@ -338,7 +511,7 @@ def test():
     exercise("prefs.Save()", env, "Save as it was originally.")
     
 
-    print "GrailPrefs tests passed."
+    print("GrailPrefs tests passed.")
     return prefs
 
 if __name__ == "__main__":

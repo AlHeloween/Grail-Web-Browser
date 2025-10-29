@@ -7,21 +7,33 @@ from formatter import AS_IS
 
 _FILTERCMD = 'djpeg'
 _FILTERARG = '-gif'
-_FILTERPATH = which(_FILTERCMD, string.splitfields(getenv('PATH'), ':'))
+_FILTERPATH = which(_FILTERCMD, getenv('PATH').split(':'))
 
 if hasattr(os, 'popen') and _FILTERPATH:
     _FILTER = _FILTERPATH + ' ' + _FILTERARG
  
     class parse_image_jpeg:
     
-        """Parser for image/jpeg files.
-    
-        Collect all the data on a temp file and then create an in-line
-        image from it.
-    
+        """A parser for JPEG images.
+
+        This class uses an external filter program (djpeg) to convert the JPEG
+        data to GIF format, which is then displayed.
+
+        Attributes:
+            broken: A flag indicating whether the image is broken.
+            tf: The temporary file object.
+            tfname: The name of the temporary file.
+            viewer: The viewer object.
+            label: The Tkinter Label widget used to display the image.
         """
     
         def __init__(self, viewer, reload=0):
+            """Initializes the JPEG parser.
+
+            Args:
+                viewer: The viewer object.
+                reload: An optional flag indicating a reload.
+            """
             self.broken = None
             self.tf = self.tfname = None
             self.viewer = viewer
@@ -33,15 +45,25 @@ if hasattr(os, 'popen') and _FILTERPATH:
             self.viewer.add_subwindow(self.label)
     
         def feed(self, data):
+            """Writes a chunk of data to the filter program.
+
+            Args:
+                data: The chunk of JPEG data to write.
+            """
             try:
                 self.tf.write(data)
-            except IOError, (errno, errmsg):
+            except IOError as e:
                 self.tf.close()
                 self.tf = None
                 self.broken = 1
-                raise IOError, (errno, errmsg)
+                raise e
     
         def close(self):
+            """Finalizes the parsing process.
+
+            This method closes the pipe to the filter program, creates a
+            PhotoImage from the resulting GIF file, and then deletes the file.
+            """
             if self.tf:
                 self.tf.close()
                 self.tf = None

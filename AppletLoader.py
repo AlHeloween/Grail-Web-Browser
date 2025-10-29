@@ -17,17 +17,38 @@ CLEANUP_HANDLER_NAME = "__cleanup__"
 
 
 class AppletLoader:
+    """Stores information about an applet and handles its loading.
 
-    """Stores semantic information about an applet-to-be.
+    This class gathers information from the HTML parser about an applet,
+    including its code, parameters, and display properties. It then manages
+    the process of loading the applet's code, instantiating it, and
+    placing it in the document.
 
-    This class stores the information gathered from parsing an <APP>
-    <APPLET> or <INSERT> tag for an applet, and from the <PARAM> tags
-    present within the body of <APPLET> or <INSERT>.  It doesn't do
-    any of the parsing itself, but it stores the information gathered
-    by the parser.  When the time is ready to instantiate the applet,
-    it will do so, either immediately (if its module has laready been
-    loaded), or after loading the module asynchronously.
-
+    Attributes:
+        parser: The HTML parser instance.
+        viewer: The viewer object.
+        context: The URI context.
+        app: The main application object.
+        name: The name of the applet.
+        classid: The class ID of the applet (for <OBJECT>).
+        code: The URL of the applet's code.
+        codebase: The base URL for the applet's code.
+        width: The width of the applet.
+        height: The height of the applet.
+        vspace: The vertical space around the applet.
+        hspace: The horizontal space around the applet.
+        align: The alignment of the applet.
+        menu: The name of the menu to create for the applet.
+        reload: A flag indicating a reload.
+        params: A dictionary of parameters for the applet.
+        modname: The name of the applet's module.
+        classname: The name of the applet's class.
+        codeurl: The full URL to the applet's code.
+        parent: The parent widget for the applet.
+        module: The applet's module.
+        klass: The applet's class.
+        instance: The applet instance.
+        rexec: The restricted execution object.
     """
 
     def __init__(self, parser, name=None, classid=None,
@@ -35,7 +56,22 @@ class AppletLoader:
                  width=None, height=None, vspace=0, hspace=0,
                  align=None,
                  menu=None, reload=0):
-        """Store the essential data (from the app or applet tag)"""
+        """Initializes the AppletLoader.
+
+        Args:
+            parser: The HTML parser instance.
+            name: The name of the applet.
+            classid: The class ID of the applet.
+            code: The URL of the applet's code.
+            codebase: The base URL for the applet's code.
+            width: The width of the applet.
+            height: The height of the applet.
+            vspace: The vertical space around the applet.
+            hspace: The horizontal space around the applet.
+            align: The alignment of the applet.
+            menu: The name of the menu to create for the applet.
+            reload: A flag indicating a reload.
+        """
         self.parser = parser
         self.viewer = self.parser.viewer
         self.context = self.viewer.context
@@ -70,11 +106,12 @@ class AppletLoader:
             self.reload.attach(self)
 
     def __del__(self):
-        """Attempt to close() once more."""
+        """Ensures that the close() method is called when the object is
+        destroyed."""
         self.close()
 
     def close(self):
-        """Delete all references to external objects."""
+        """Cleans up all references to external objects."""
         self.parser = self.viewer = self.context = self.app = None
         self.params = {}
         self.modname = self.codeurl = None
@@ -85,7 +122,12 @@ class AppletLoader:
         self.reload = None
 
     def get_rexec(self):
-        """Get or create the rexec object for this applet's group."""
+        """Gets or creates the restricted execution object for this applet's
+        group.
+
+        Returns:
+            The RExec object.
+        """
         if not self.rexec:
             key = get_key(self.context)
             cache = self.app.rexec_cache
@@ -98,7 +140,12 @@ class AppletLoader:
         return self.rexec
 
     def feasible(self):
-        """Test whether we should try load the applet."""
+        """Checks whether the applet should be loaded based on user
+        preferences.
+
+        Returns:
+            True if the applet should be loaded, False otherwise.
+        """
         prefs = self.app.prefs
         mode = prefs.Get("applets", "load")
         if mode == "none":
@@ -121,7 +168,14 @@ class AppletLoader:
             return 0
 
     def set_param(self, name, value):
-        """Set the value for a named parameter for the widget."""
+        """Sets a parameter for the applet.
+
+        This method attempts to convert the value to a number if possible.
+
+        Args:
+            name: The name of the parameter.
+            value: The value of the parameter.
+        """
         try:
             value = string.atoi(value, 0)
         except string.atoi_error:
@@ -135,13 +189,11 @@ class AppletLoader:
         self.params[name] = value
 
     def go_for_it(self):
-        """Import the module and instantiate the class, maybe async.
+        """Starts the process of loading and instantiating the applet.
 
-        This is synchronous if the module has already been loaded or
-        if it will be loaded from a local file; it is asynchronous if
-        the module has to be loaded from a remote site.  Errors in
-        this stage are reported via the standard error dialog.
-
+        This method handles both synchronous and asynchronous loading of the
+        applet's code. Errors are reported through the application's
+        exception dialog.
         """
         try:
             self._go_for_it()
@@ -150,14 +202,14 @@ class AppletLoader:
             self.close()
 
     def _go_for_it(self):
+        """Internal helper for go_for_it()."""
         self.get_defaults()
         self.module = self.get_easy_module(self.modname)
         if self.module:
             # Synchronous loading
             self.klass = getattr(self.module, self.classname)
             self.parent = self.make_parent()
-            self.instance = apply(self.klass, (self.parent,),
-                                  self.params)
+            self.instance = self.klass(self.parent, **self.params)
             try: cleanup = getattr(self.instance, CLEANUP_HANDLER_NAME)
             except AttributeError: pass
             else: CleanupHandler(self.parser.viewer, cleanup)
@@ -168,9 +220,13 @@ class AppletLoader:
             ModuleReader(self.context, api, self)
 
     def make_parent(self):
-        """Return a widget that will be the applet's parent.
+        """Creates the parent widget for the applet.
 
-        This is either a menu or a frame subwindow of the text widget.
+        This will be either a menu or a frame, depending on the applet's
+        'menu' attribute.
+
+        Returns:
+            The parent widget.
         """
         if self.menu:
             browser = self.context.browser
@@ -190,7 +246,11 @@ class AppletLoader:
         return parent                   #  FLD:  made to work in either case
 
     def load_it_now(self):
-        """Invoked by ModuleReader when it is done, to create the applet."""
+        """Callback for asynchronous loading.
+
+        This method is called by the ModuleReader when the applet's code
+        has been loaded.
+        """
         try:
             self._load_it_now()
         except:
@@ -198,7 +258,7 @@ class AppletLoader:
         self.close()
 
     def _load_it_now(self):
-        """Internal -- load_it_now(), without the try/except clause."""
+        """Internal helper for load_it_now()."""
         mod = self.modname
         rexec = self.get_rexec()
         rexec.reset_urlpath()
@@ -210,13 +270,14 @@ class AppletLoader:
             del rexec.loader.load_module
         self.parser.loaded.append(mod)
         self.klass = getattr(self.module, self.classname)
-        self.instance = apply(self.klass, (self.parent,), self.params)
+        self.instance = self.klass(self.parent, **self.params)
         try: cleanup = getattr(self.instance, CLEANUP_HANDLER_NAME)
         except AttributeError: pass
         else: CleanupHandler(self.parser.viewer, cleanup)
 
     def get_defaults(self):
-        """Internal -- calculate defaults for applet parameters."""
+        """Calculates default values for the applet's module name, class name,
+        and code URL."""
         if self.code:                   # <APP> or <APPLET>
             if codeprog.match(self.code) >= 0:
                 self.modname = codeprog.group(2)
@@ -248,7 +309,14 @@ class AppletLoader:
             
 
     def get_easy_module(self, mod):
-        """Internal -- import a module if it can be done locally."""
+        """Gets a module if it can be loaded locally.
+
+        Args:
+            mod: The name of the module to get.
+
+        Returns:
+            The module object, or None if it cannot be loaded locally.
+        """
         m = self.mod_is_loaded(mod)
         if not m:
             stuff = self.mod_is_local(mod)
@@ -257,7 +325,14 @@ class AppletLoader:
         return m
 
     def mod_is_loaded(self, mod):
-        """Internal -- check whether a module has already been loaded."""
+        """Checks if a module has already been loaded.
+
+        Args:
+            mod: The name of the module to check.
+
+        Returns:
+            The module object if it is loaded, otherwise None.
+        """
         rexec = self.get_rexec()
         try:
             return rexec.modules[mod]
@@ -265,13 +340,32 @@ class AppletLoader:
             return None
 
     def mod_is_local(self, mod):
-        """Internal -- check whether a module can be found locally."""
+        """Checks if a module can be found in the local search path.
+
+        Args:
+            mod: The name of the module to check.
+
+        Returns:
+            The result of `imp.find_module`, or None if the module is not
+            found.
+        """
         rexec = self.get_rexec()
         path = rexec.get_url_free_path()
         return rexec.loader.find_module(mod, path)
 
     def load_module(self, mod, stuff):
-        """Internal -- load a module given the imp.find_module() stuff."""
+        """Loads a module from a local file.
+
+        Args:
+            mod: The name of the module to load.
+            stuff: The result of `imp.find_module`.
+
+        Returns:
+            The loaded module object.
+
+        Raises:
+            ImportError: If the module type is not supported.
+        """
         rexec = self.get_rexec()
         rexec.reset_urlpath()
         rexec.set_urlpath(self.codeurl)
@@ -300,30 +394,44 @@ class AppletLoader:
         elif type == ihooks.C_EXTENSION:
             m = rexec.load_dynamic(mod, filename, file)
         else:
-            raise ImportError, "Unsupported module type: %s" % `filename`
+            raise ImportError("Unsupported module type: %s" % repr(filename))
         return m
 
     def show_tb(self):
-        """Internal -- post an exception dialog (via the app)."""
+        """Displays an exception traceback in a dialog."""
         self.app.exception_dialog("during applet loading",
                                   root=self.context.root)
 
 
 class ModuleReader(BaseReader):
+    """Asynchronously loads an applet's source module.
 
-    """Load an applet, asynchronously.
+    This class reads the applet's source code from a URL and then calls
+    back to the AppletLoader to instantiate the applet.
 
-    First load an applet's source module into the cache.  Once it's
-    done, invoke the standard mechanism to actually load the module.
-    This will find the source ready for it in the cache.
-
+    Attributes:
+        apploader: The AppletLoader for the applet being loaded.
     """
 
     def __init__(self, context, api, apploader):
+        """Initializes the ModuleReader.
+
+        Args:
+            context: The URI context.
+            api: The URL API object for the applet's code.
+            apploader: The AppletLoader instance.
+        """
         self.apploader = apploader
         BaseReader.__init__(self, context, api)
 
     def handle_error(self, errno, errmsg, headers):
+        """Handles an error that occurred while loading the module.
+
+        Args:
+            errno: The error number.
+            errmsg: The error message.
+            headers: The response headers.
+        """
         self.apploader.context.error_dialog(
             ImportError,
             "Applet code at URL %s not loaded (%s: %s)" %
@@ -333,6 +441,7 @@ class ModuleReader(BaseReader):
         BaseReader.handle_error(self, errno, errmsg, headers)
 
     def handle_eof(self):
+        """Callback for when the end of the file is reached."""
         apploader = self.apploader
         self.apploader = None
         apploader.load_it_now()
@@ -340,55 +449,66 @@ class ModuleReader(BaseReader):
 
 
 class Dummy:
-    """Base for dummy classes that wrap around Grail objects.
+    """A base class for dummy objects that wrap real Grail objects.
 
-    Ordinary bastions are not enough because there are some methods
-    that return existing or new objects that need to be bastionized.
+    This class provides a layer of security by exposing only a limited set of
+    methods to applets.
 
-    Thus there are now two layers around each object before it is
-    passed to the applet: Bastion -> Dummy -> RealObject.
-
-    In order to make the overhead palatable, the bastions are shared
-    within an applet group, but in order to keep applet groups
-    compartmentalized, there is a bastion per applet group.
-
+    Attributes:
+        real: The real object being wrapped.
+        ok_names: A list of attribute names that are safe to access.
     """
 
     ok_names = []
 
     def __init__(self, real):
+        """Initializes the Dummy object.
+
+        Args:
+            real: The real object to wrap.
+        """
         self.real = real
 
     def __getattr__(self, name):
+        """Gets an attribute, checking if it is in the allowed list."""
         if name in self.ok_names:
             attr = getattr(self.real, name)
             setattr(self, name, attr)
             return attr
         else:
-            raise AttributeError, name  # Attribute not allowed
+            raise AttributeError(name)  # Attribute not allowed
 
 class AppDummy(Dummy):
-
+    """A dummy object for the Application."""
     ok_names = ['get_cache_keys']
 
 class BrowserDummy(Dummy):
-
+    """A dummy object for the Browser."""
     ok_names = ['load', 'message', 'valid', 'get_async_image',
                 'reload_command']
 
     def __init__(self, real, key):
+        """Initializes the BrowserDummy.
+
+        Args:
+            real: The real Browser object.
+            key: The applet group key.
+        """
         self.real = real
         self.key = key
 
     def new_command(self):
+        """Creates a new browser window."""
         return BrowserBastion(self.real.new_command(), self.key)
 
     def clone_command(self):
+        """Clones the current browser window."""
         return BrowserBastion(self.real.clone_command(), self.key)
 
     # 0.2 compatibility:
     
     def follow(self, url):
+        """Follows a URL."""
         self.real.context.follow(url)
 
 ##    def get_async_image(self, src):
@@ -396,7 +516,7 @@ class BrowserDummy(Dummy):
 ##      return Bastion(self.real.get_async_image(src))
 
 class ContextDummy(Dummy):
-
+    """A dummy object for the URIContext."""
     ok_names = ['get_baseurl', 'load', 'follow', 'message',
                 'get_async_image', 'set_local_api']
 
@@ -404,15 +524,15 @@ class ContextDummy(Dummy):
 ##      return Bastion(self.real.get_async_image(src))
 
 class GlobalHistoryDummy(Dummy):
-
+    """A dummy object for the GlobalHistory."""
     ok_names = ['remember_url', 'lookup_url', 'inhistory_p', 'urls']
 
 class ParserDummy(Dummy):
-
+    """A dummy object for the HTML parser."""
     ok_names = []
 
 class ViewerDummy(Dummy):
-
+    """A dummy object for the viewer."""
     ok_names = [
         'add_subwindow',
         'bind_anchors',
@@ -431,6 +551,7 @@ class ViewerDummy(Dummy):
         ]
 
 def AppBastion(real, key):
+    """Creates a bastion for the Application object."""
     try:
         return real._bastions[key]
     except KeyError:
@@ -442,6 +563,7 @@ def AppBastion(real, key):
     return bastion
 
 def BrowserBastion(real, key):
+    """Creates a bastion for the Browser object."""
     try:
         return real._bastions[key]
     except KeyError:
@@ -457,6 +579,7 @@ def BrowserBastion(real, key):
     return bastion
 
 def ContextBastion(real, key):
+    """Creates a bastion for the URIContext object."""
     try:
         return real._bastions[key]
     except KeyError:
@@ -467,6 +590,7 @@ def ContextBastion(real, key):
     return bastion
 
 def GlobalHistoryBastion(real, key):
+    """Creates a bastion for the GlobalHistory object."""
     try:
         return real._bastions[key]
     except KeyError:
@@ -477,6 +601,7 @@ def GlobalHistoryBastion(real, key):
     return bastion
 
 def ParserBastion(real, key):
+    """Creates a bastion for the HTML parser object."""
     try:
         return real._bastions[key]
     except KeyError:
@@ -487,6 +612,7 @@ def ParserBastion(real, key):
     return bastion
 
 def ViewerBastion(real, key):
+    """Creates a bastion for the viewer object."""
     try:
         return real._bastions[key]
     except KeyError:
@@ -510,8 +636,19 @@ def ViewerBastion(real, key):
 
 
 class AppletMagic:
+    """A mixin class that provides applets with access to Grail's core
+    objects.
+
+    This class creates bastions for the parser, viewer, context, browser, and
+    app objects, providing a secure way for applets to interact with them.
+    """
 
     def __init__(self, loader):
+        """Initializes the AppletMagic.
+
+        Args:
+            loader: The AppletLoader instance.
+        """
         self.grail_parser = self.grail_viewer = self.grail_context = \
                             self.grail_browser = self.grail_app = None
         if loader:
@@ -530,37 +667,69 @@ class AppletMagic:
 
 
 class AppletFrame(Frame, AppletMagic):
+    """A Tkinter Frame that can host an applet."""
 
     def __init__(self, master, loader=None, cnf={}, **kw):
-        apply(Frame.__init__, (self, master, cnf), kw)
+        """Initializes the AppletFrame.
+
+        Args:
+            master: The parent widget.
+            loader: The AppletLoader instance.
+            cnf: A dictionary of configuration options.
+            **kw: Additional keyword arguments.
+        """
+        Frame.__init__(self, master, cnf, **kw)
         AppletMagic.__init__(self, loader)
 
     def table_geometry(self):
+        """Returns the geometry for use in a table layout."""
         w = self.winfo_width()
         h = self.winfo_height()
         return w, w, h
 
 
 class AppletMenu(Menu, AppletMagic):
+    """A Tkinter Menu that can host an applet."""
 
     def __init__(self, master, loader=None, cnf={}, **kw):
-        apply(Menu.__init__, (self, master, cnf), kw)
+        """Initializes the AppletMenu.
+
+        Args:
+            master: The parent widget.
+            loader: The AppletLoader instance.
+            cnf: A dictionary of configuration options.
+            **kw: Additional keyword arguments.
+        """
+        Menu.__init__(self, master, cnf, **kw)
         AppletMagic.__init__(self, loader)
 
 
 # Utilities
 
 def get_key(context):
+    """Gets the applet group key for a given context.
+
+    Args:
+        context: The URI context.
+
+    Returns:
+        The applet group key as a string.
+    """
     key = _get_key(context)
     context.applet_group = key
     return key
 
 def _get_key(context):
-    """Get the key to be used in the rexec cache for this context.
-    
-    For now, we have a separate rexec environment per page.
-    In the future, the user will be able to specify the granularity.
+    """Internal helper to determine the applet group key.
 
+    This function determines the key based on the URL and the user's
+    preferences for applet groups.
+
+    Args:
+        context: The URI context.
+
+    Returns:
+        The applet group key as a string.
     """
     if context.applet_group:
         return context.applet_group
@@ -595,7 +764,14 @@ def _get_key(context):
     return url
 
 def get_rexec(context):
-    """Get the rexec object for this context, if one already exists."""
+    """Gets the RExec object for a given context, if one already exists.
+
+    Args:
+        context: The URI context.
+
+    Returns:
+        The RExec object, or None if it does not exist.
+    """
     app = context.app
     key = get_key(context)
     cache = app.rexec_cache
@@ -603,31 +779,49 @@ def get_rexec(context):
         return cache[key]
 
 def set_reload(context):
-    """If there's a rexec object for this context, prepare it for reloading."""
+    """Prepares the RExec object for a context for reloading.
+
+    Args:
+        context: The URI context.
+
+    Returns:
+        A ReloadHelper object.
+    """
     return ReloadHelper(context)
 
 
 class ReloadHelper:
+    """A helper class to manage the reloading of applets.
 
-    """Helper class to clear reload status when all applets are loaded."""
-
-    # XXX I tried keying off reference counts but it didn't work
+    This class ensures that the RExec object's reload status is cleared
+    once all applets have been reloaded.
+    """
 
     def __init__(self, context):
+        """Initializes the ReloadHelper.
+
+        Args:
+            context: The URI context.
+        """
         self.count = 0
         self.rexec = get_rexec(context)
         if self.rexec:
             self.rexec.set_reload()
 
     def __del__(self):
+        """Ensures that the reload status is cleared when the object is
+        destroyed."""
         if self.rexec:
             self.rexec.clear_reload()
         self.rexec = None
 
     def attach(self, who=None):
+        """Increments the reference count."""
         self.count = self.count + 1
 
     def detach(self, who=None):
+        """Decrements the reference count and clears the reload status if
+        the count reaches zero."""
         self.count = self.count - 1
         if self.count <= 0:
             if self.rexec:
@@ -635,14 +829,24 @@ class ReloadHelper:
                 self.rexec = None
 
 class CleanupHandler:
-    """Helper to run an applet's __cleanup__ discipline.
+    """A helper class to run an applet's __cleanup__ method.
+
+    This class ensures that the applet's cleanup method is called when the
+    viewer is reset.
     """
     def __init__(self, viewer, handler):
+        """Initializes the CleanupHandler.
+
+        Args:
+            viewer: The viewer object.
+            handler: The cleanup handler function.
+        """
         self._viewer = viewer
         self._handler = handler
         viewer.register_reset_interest(self)
 
     def __call__(self, *args):
+        """Calls the cleanup handler."""
         import sys
         try: self._handler()
         except: sys.exc_traceback = None ## Pulling in show_tb from the loader

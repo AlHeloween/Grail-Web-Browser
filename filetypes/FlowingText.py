@@ -19,22 +19,50 @@ from formatter import AS_IS
 
 
 class FlowingTextParser:
+    """A parser for text/plain with format=flowed.
+
+    This class parses text that follows the format=flowed specification,
+    handling flowing and fixed paragraphs.
+
+    Attributes:
+        buffer: A buffer for incomplete lines.
+        flowing: A flag indicating whether the text is currently flowing.
+        signature: A flag indicating whether a signature block has been
+            encountered.
+        viewer: The viewer object to which the parsed text is sent.
+        formatter: The formatter object used to format the text.
+    """
     buffer = ''
     flowing = 0
     signature = 0
 
     def __init__(self, viewer, reload=0):
+        """Initializes the FlowingTextParser.
+
+        Args:
+            viewer: The viewer object.
+            reload: An optional flag indicating a reload.
+        """
         self.viewer = viewer
         self.formatter = formatter.AbstractFormatter(viewer)
         self.set_flow(1)
 
     def feed(self, data):
+        """Processes a chunk of text.
+
+        This method analyzes the text line by line to determine whether it
+        is part of a flowing or fixed paragraph, and sends it to the
+        formatter accordingly.
+
+        Args:
+            data: The chunk of text to process.
+        """
         data = self.buffer + data
         self.buffer = ''
         if self.signature:
             self.send_data(data)
         else:
-            lines = string.split(data, '\n')
+            lines = data.splitlines()
             if lines:
                 self.buffer = lines[-1]
                 for line in lines[:-1]:
@@ -53,15 +81,30 @@ class FlowingTextParser:
                         self.send_data(line + '\n')
 
     def close(self):
+        """Finalizes the parsing process.
+
+        This method sends any remaining data in the buffer to the formatter.
+        """
         self.send_data(self.buffer)
 
     def send_data(self, data):
+        """Sends data to the formatter.
+
+        Args:
+            data: The data to send.
+        """
         if self.flowing:
             self.formatter.add_flowing_data(data)
         else:
             self.formatter.add_literal_data(data)
 
     def set_flow(self, flow):
+        """Sets the flowing mode.
+
+        Args:
+            flow: A boolean indicating whether to enable or disable flowing
+                mode.
+        """
         flow = not not flow
         if self.flowing != flow:
             if self.flowing:

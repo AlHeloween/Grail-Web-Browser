@@ -51,10 +51,32 @@ class Browser:
     This class creates the main browser window and manages the user interface,
     including the menu bar, URL entry field, and status bar. It also
     instantiates the Viewer class to display the web page content.
+
+    Attributes:
+        master: The parent widget.
+        app: The main application object.
+        root: The root Tkinter window for this browser.
+        topframe: The top frame containing the logo, menubar, and urlbar.
+        logo: The animated logo.
+        mbar: The menu bar.
+        entry: The URL entry field.
+        msg: The status bar label.
+        viewer: The Viewer object that displays the web page content.
+        context: The URI context.
+        user_menus: A list of user-defined menus.
     """
     def __init__(self, master, app=None,
                  width=None, height=None,
                  geometry=None):
+        """Initializes the Browser.
+
+        Args:
+            master: The parent widget.
+            app: The main application object.
+            width: The initial width of the browser window.
+            height: The initial height of the browser window.
+            geometry: The initial geometry of the browser window.
+        """
         self.master = master
         if not app:
             app = grailutil.get_grailapp()
@@ -69,6 +91,13 @@ class Browser:
         app.add_browser(self)
 
     def create_widgets(self, width, height, geometry):
+        """Creates all the widgets for the browser window.
+
+        Args:
+            width: The initial width of the browser window.
+            height: The initial height of the browser window.
+            geometry: The initial geometry of the browser window.
+        """
         # I'd like to be able to set the widget name here, but I'm not
         # sure what the correct thing to do is.  Setting it to `grail'
         # is definitely *not* the right thing to do since this causes
@@ -91,6 +120,7 @@ class Browser:
             self.logo_init()
 
     def create_logo(self):
+        """Creates the animated logo."""
         self.logo = Button(self.root, name="logo",
                            command=self.stop_command,
                            state=DISABLED)
@@ -100,6 +130,7 @@ class Browser:
         self.logo_animate = 0
 
     def create_menubar(self):
+        """Creates the menu bar and all the menus."""
         # Create menu bar, menus, and menu entries
 
         # Create menu bar
@@ -121,12 +152,25 @@ class Browser:
             self.create_menu("help")
 
     def create_menu(self, name):
+        """Creates a single menu.
+
+        Args:
+            name: The name of the menu to create.
+        """
         menu = Menu(self.mbar, name=name)
         self.mbar.add_cascade(label=string.capitalize(name), menu=menu)
         setattr(self, name + "menu", menu)
         getattr(self, "create_menu_" + name)(menu)
 
     def _menucmd(self, menu, label, accelerator, command):
+        """Adds a command to a menu, with an optional accelerator.
+
+        Args:
+            menu: The menu to add the command to.
+            label: The label for the menu item.
+            accelerator: The accelerator key.
+            command: The command to execute.
+        """
         if not accelerator:
             menu.add_command(label=label, command=command)
             return
@@ -147,6 +191,7 @@ class Browser:
             self.root.bind("<Alt-%s>" % string.lower(accelerator), command)
 
     def create_menu_file(self, menu):
+        """Creates the 'File' menu."""
         self._menucmd(menu, "New Window", "N", self.new_command)
         self._menucmd(menu, "Clone Current Window", "K", self.clone_command)
         self._menucmd(menu, "View Source", "V", self.view_source_command)
@@ -168,6 +213,7 @@ class Browser:
             self._menucmd(menu, "Quit", "Q", self.quit_command)
 
     def create_menu_go(self, menu):
+        """Creates the 'Go' menu."""
         self._menucmd(menu, "Back", "Left", self.back_command)
         self._menucmd(menu, "Forward", "Right", self.forward_command)
         self._menucmd(menu, "Reload", "R", self.reload_command)
@@ -176,20 +222,24 @@ class Browser:
         self._menucmd(menu, "Home", None, self.home_command)
 
     def create_menu_search(self, menu):
+        """Creates the 'Search' menu."""
         menu.grail_browser = self       # Applet compatibility
         import SearchMenu
         SearchMenu.SearchMenu(menu, self.root, self)
 
     def create_menu_bookmarks(self, menu):
+        """Creates the 'Bookmarks' menu."""
         menu.grail_browser = self # Applet compatibility
         import BookmarksGUI
         self.bookmarksmenu_menu = BookmarksGUI.BookmarksMenu(menu)
 
     def create_menu_preferences(self, menu):
+        """Creates the 'Preferences' menu."""
         from PrefsPanels import PrefsPanelsMenu
         PrefsPanelsMenu(menu, self)
 
     def create_menu_help(self, menu):
+        """Creates the 'Help' menu."""
         lines = self.get_helpspec()
         i = 0
         n = len(lines) - 1
@@ -205,6 +255,7 @@ class Browser:
 
     __helpspec = None
     def get_helpspec(self):
+        """Gets the help menu specification from the preferences."""
         if self.__helpspec is not None:
             return self.__helpspec
         raw = self.app.prefs.Get('browser', 'help-menu')
@@ -214,6 +265,7 @@ class Browser:
         return self.__helpspec
 
     def create_urlbar(self):
+        """Creates the URL entry bar."""
         f = Frame(self.topframe)
         f.pack(fill=X)
         l = Label(self.root, name="uriLabel")
@@ -223,6 +275,7 @@ class Browser:
         self.entry.bind('<Return>', self.load_from_entry)
 
     def create_statusbar(self):
+        """Creates the status bar."""
         msg_frame = Frame(self.root, name="statusbar")
         msg_frame.pack(fill=X, side=BOTTOM, in_=self.topframe)
         msg_frame.propagate(OFF)
@@ -234,16 +287,19 @@ class Browser:
     # --- External interfaces ---
 
     def get_async_image(self, src):
-        # XXX This is here for the 0.2 ImageLoopItem applet only
+        """Gets an asynchronous image. For 0.2 ImageLoopItem applet only."""
         return self.context.get_async_image(src)
 
     def allowstop(self):
+        """Enables the stop button (the animated logo)."""
         self.logo_start()
 
     def clearstop(self):
+        """Disables the stop button."""
         self.logo_stop()
 
     def clear_reset(self):
+        """Removes all user-defined menus."""
         num = len(self.user_menus)
         if num:
             last = self.mbar.index(END)
@@ -256,17 +312,37 @@ class Browser:
         self.user_menus[:] = []
 
     def set_url(self, url):
+        """Sets the URL in the entry field and the window title.
+
+        Args:
+            url: The URL to set.
+        """
         self.set_entry(url)
         title, when = self.app.global_history.lookup_url(url)
         self.set_title(title or url)
 
     def set_title(self, title):
+        """Sets the window title.
+
+        Args:
+            title: The new title.
+        """
         self._window_title(TITLE_PREFIX + title)
 
     def message(self, string = ""):
+        """Displays a message in the status bar.
+
+        Args:
+            string: The message to display.
+        """
         self.msg['text'] = string
 
     def messagevariable(self, variable=None):
+        """Sets the textvariable for the status bar message.
+
+        Args:
+            variable: The Tkinter variable to use.
+        """
         if variable:
             self.msg['textvariable'] = variable
         else:
@@ -275,29 +351,39 @@ class Browser:
     message_clear = messagevariable
 
     def error_dialog(self, exception, msg):
+        """Displays an error dialog.
+
+        Args:
+            exception: The exception type.
+            msg: The error message.
+        """
         if self.app:
             self.app.error_dialog(exception, msg, root=self.root)
         else:
-            print "ERROR:", msg
+            print("ERROR:", msg)
 
     def load(self, *args, **kw):
-        """Interface for applets."""
+        """Loads a URL. This is an interface for applets."""
         return apply(self.context.load, args, kw)
 
     def valid(self):
+        """Checks if the browser is still valid (i.e., not closed)."""
         return self.app and self in self.app.browsers
 
     # --- Internals ---
 
     def _window_title(self, title):
+        """Sets the window title and icon name."""
         self.root.title(title)
         self.root.iconname(title)
 
     def set_entry(self, url):
+        """Sets the text in the URL entry field."""
         self.entry.delete('0', END)
         self.entry.insert(END, url)
 
     def close(self):
+        """Closes the browser window."""
         self.context.stop()
         self.viewer.close()
         self.root.destroy()
@@ -312,11 +398,13 @@ class Browser:
     # WM_DELETE_WINDOW on toplevel
 
     def on_delete(self):
+        """Callback for when the window is closed."""
         self.close()
 
     # <Return> in URL entry field
 
     def load_from_entry(self, event):
+        """Callback for when the user presses Return in the URL entry field."""
         url = string.strip(self.entry.get())
         if url:
             self.context.load(grailutil.complete_url(url))
@@ -326,6 +414,7 @@ class Browser:
     # Stop command
 
     def stop_command(self, event=None):
+        """Callback for the stop button."""
         if self.context.busy():
             self.context.stop()
             self.message("Stopped.")
@@ -333,15 +422,18 @@ class Browser:
     # File menu commands
 
     def new_command(self, event=None):
+        """Callback for the 'New Window' menu item."""
         b = Browser(self.master, self.app)
         return b
 
     def clone_command(self, event=None):
+        """Callback for the 'Clone Current Window' menu item."""
         b = Browser(self.master, self.app)
         b.context.clone_history_from(self.context)
         return b
 
     def open_uri_command(self, event=None):
+        """Callback for the 'Open Location...' menu item."""
         import OpenURIDialog
         dialog = OpenURIDialog.OpenURIDialog(self.root)
         uri, new = dialog.go()
@@ -353,6 +445,7 @@ class Browser:
             browser.context.load(grailutil.complete_url(uri))
 
     def open_file_command(self, event=None):
+        """Callback for the 'Open File...' menu item."""
         import FileDialog
         dialog = FileDialog.LoadFileDialog(self.master)
         filename = dialog.go(key="load")
@@ -361,6 +454,7 @@ class Browser:
             self.context.load('file:' + urllib.pathname2url(filename))
 
     def open_selection_command(self, event=None):
+        """Callback for the 'Open Selection' menu item."""
         try:
             selection = self.root.selection_get()
         except TclError:
@@ -370,22 +464,28 @@ class Browser:
         self.context.load(grailutil.complete_url(uri))
 
     def view_source_command(self, event=None):
+        """Callback for the 'View Source' menu item."""
         self.context.view_source()
 
     def save_as_command(self, event=None):
+        """Callback for the 'Save As...' menu item."""
         self.context.save_document()
 
     def print_command(self, event=None):
+        """Callback for the 'Print...' menu item."""
         self.context.print_document()
 
     def iostatus_command(self, event=None):
+        """Callback for the 'I/O Status Panel...' menu item."""
         self.app.open_io_status_panel()
 
     def close_command(self, event=None):
+        """Callback for the 'Close' menu item."""
         # File/Close
         self.close()
 
     def quit_command(self, event=None):
+        """Callback for the 'Quit' menu item."""
         # File/Quit
         if self.app: self.app.quit()
         else: self.close()
@@ -393,31 +493,35 @@ class Browser:
     # History menu commands
 
     def home_command(self, event=None):
+        """Callback for the 'Home' menu item."""
         home = self.app.prefs.Get('landmarks', 'home-page')
         if not home:
             home = self.app.prefs.Get('landmarks', 'default-home-page')
         self.context.load(home)
 
     def reload_command(self, event=None):
+        """Callback for the 'Reload' menu item."""
         self.context.reload_page()
 
     def forward_command(self, event=None):
+        """Callback for the 'Forward' menu item."""
         self.context.go_forward()
 
     def back_command(self, event=None):
+        """Callback for the 'Back' menu item."""
         self.context.go_back()
 
     def show_history_command(self, event=None):
+        """Callback for the 'History...' menu item."""
         self.context.show_history_dialog()
 
     # --- Animated logo ---
 
     def logo_init(self):
-        """Initialize animated logo and display the first image.
+        """Initializes the animated logo.
 
-        This doesn't start the animation sequence -- use logo_start()
-        for that.
-
+        This method sets up the necessary variables for the animation and
+        displays the first frame.
         """
         self.logo_index = 0             # Currently displayed image
         self.logo_last = -1             # Last image; -1 if unknown
@@ -426,11 +530,7 @@ class Browser:
         self.logo_next()
 
     def logo_next(self):
-        """Display the next image in the logo animation sequence.
-
-        If the first image can't be found, disable animation.
-
-        """
+        """Displays the next frame of the logo animation."""
         self.logo_index = self.logo_index + 1
         if self.logo_last > 0 and self.logo_index > self.logo_last:
             self.logo_index = 1
@@ -449,11 +549,7 @@ class Browser:
         self.logo.config(image=image, state=NORMAL)
 
     def logo_start(self):
-        """Start logo animation.
-
-        If we can't/don't animate the logo, enable the stop button instead.
-
-        """
+        """Starts the logo animation."""
         self.logo.config(state=NORMAL)
         if not self.logo_animate:
             return
@@ -463,11 +559,7 @@ class Browser:
             self.logo_id = self.root.after(200, self.logo_update)
 
     def logo_stop(self):
-        """Stop logo animation.
-
-        If we can't/don't animate the logo, disable the stop button instead.
-
-        """
+        """Stops the logo animation."""
         if not self.logo_animate:
             self.logo.config(state=DISABLED)
             return
@@ -478,7 +570,7 @@ class Browser:
         self.logo_next()
 
     def logo_update(self):
-        """Keep logo animation going."""
+        """Updates the logo animation."""
         self.logo_id = None
         if self.logo_animate:
             self.logo_next()
@@ -489,6 +581,19 @@ class Browser:
 
     def search_for_pattern(self, pattern,
                            regex_flag, case_flag, backwards_flag):
+        """Searches for a pattern in the document.
+
+        Args:
+            pattern: The pattern to search for.
+            regex_flag: A flag indicating whether the pattern is a regular
+                expression.
+            case_flag: A flag indicating whether the search should be
+                case-sensitive.
+            backwards_flag: A flag indicating whether to search backwards.
+
+        Returns:
+            The index of the found pattern, or None if not found.
+        """
         textwidget = self.viewer.text
         try:
             index = textwidget.index(SEL_FIRST)
@@ -514,13 +619,23 @@ class Browser:
 
 
 class HelpMenuCommand:
-    """Encapsulate a menu item into a callable object to load the resource.
+    """A callable object for a help menu item.
+
+    This class encapsulates a URL and a browser instance, so that when it is
+    called, it loads the URL in the browser.
     """
     def __init__(self, browser, url):
+        """Initializes the HelpMenuCommand.
+
+        Args:
+            browser: The browser instance.
+            url: The URL to load.
+        """
         self.__browser = browser
         self.__url = url
 
     def __call__(self, event=None):
+        """Loads the URL in the browser."""
         self.__browser.context.load(self.__url)
 
 

@@ -10,10 +10,18 @@ import sys
 import tempfile
 import types
 import urllib
-import urlparse
+from urllib import parse as urlparse
 
 
 def is_url(p):
+    """Checks if a path is a URL.
+
+    Args:
+        p: The path to check.
+
+    Returns:
+        The scheme if it is a URL, otherwise None.
+    """
     u = urlparse.urlparse(p)
     #
     # Unfortunately path names on the MAC and Windows parse
@@ -27,8 +35,14 @@ def is_url(p):
 
 
 class AppletRHooks(RHooks):
+    """Restricted execution hooks for applets.
+
+    This class overrides some of the default RHooks methods to handle URLs
+    and provide a sandboxed environment for applets.
+    """
 
     def path_join(self, p1, p2):
+        """Joins two path components, handling URLs correctly."""
         if is_url(p1) or is_url(p2):
             if '/' not in p2 and '.' not in p2:
                 # Assume it's a directory -- needed for package loading
@@ -38,12 +52,18 @@ class AppletRHooks(RHooks):
             return RHooks.path_join(self, p1, p2)
 
     def path_isdir(self, p):
+        """Checks if a path is a directory, handling URLs correctly."""
         if is_url(p):
             return p[-1:] == "/"
         else:
             return RHooks.path_isdir(self, p)
 
     def openfile(self, p, mode='r', buf=-1):
+        """Opens a file, handling URLs correctly.
+
+        This method is used by the import mechanism to read modules. It
+        restricts remote access to .py files only.
+        """
         # Only used to read modules
         if is_url(p):
             # Avoid hitting the remote server with every suffix
@@ -52,14 +72,18 @@ class AppletRHooks(RHooks):
             # (at least under certain circumstances) shared libs
             # are okay when found on the local file system.
             if p[-3:] != '.py':
-                raise IOError, "Only Python modules may be read remotely"
+                raise IOError("Only Python modules may be read remotely")
             return self.openurl(p, mode, buf)
         else:
             return open(p, mode, buf)
 
     def openurl(self, p, mode='r', buf=-1):
+        """Opens a URL for reading.
+
+        This method uses the application's URL opening mechanism.
+        """
         if mode not in ('r', 'rb'):
-            raise IOError, "Can't open URL for writing"
+            raise IOError("Can't open URL for writing")
         app = self.rexec.app
         if not app:
             # Fall back for test mode
@@ -76,30 +100,59 @@ class AppletRHooks(RHooks):
 
 
 class PseudoFile:
+    """A file-like object that wraps a URL API object.
+
+    This class provides a file-like interface for reading data from a URL.
+
+    Attributes:
+        api: The URL API object.
+        buf: A buffer for the data read from the URL.
+        done: A flag indicating whether the end of the stream has been reached.
+    """
 
     # XXX Is this safe?
     # XXX Is this sufficient?
 
     def __init__(self, api):
+        """Initializes the PseudoFile.
+
+        Args:
+            api: The URL API object.
+        """
         self.api = api
         self.buf = ''
         self.done = 0
 
     def close(self):
+        """Closes the file and the underlying URL API object."""
         api = self.api
         self.api = self.buf = self.done = None
         if api:
             api.close()
 
     def read(self, n=-1):
+        """Reads data from the file.
+
+        Args:
+            n: The number of bytes to read. If -1, reads until the end of
+                the stream.
+
+        Returns:
+            The data read from the file as a string.
+        """
         if n < 0:
-            n = sys.maxint
+            n = sys.maxsize
         while len(self.buf) < n and not self.done:
             self.fill(min(n - len(self.buf), 1024*8))
         data, self.buf = self.buf[:n], self.buf[n:]
         return data
 
     def readlines(self):
+        """Reads all lines from the file.
+
+        Returns:
+            A list of strings, where each string is a line from the file.
+        """
         list = []
         while 1:
             line = self.readline()
@@ -108,6 +161,12 @@ class PseudoFile:
         return list
 
     def readline(self):
+        """Reads a single line from the file.
+
+        Returns:
+            A string containing the line, or an empty string if the end of
+            the file is reached.
+        """
         while '\n' not in self.buf and not self.done:
             self.fill()
         i = string.find(self.buf, '\n')
@@ -119,6 +178,11 @@ class PseudoFile:
         return data
 
     def fill(self, n = 512):
+        """Fills the buffer with data from the URL.
+
+        Args:
+            n: The number of bytes to read.
+        """
         data = self.api.getdata(n)
         if data:
             self.buf = self.buf + data
@@ -127,6 +191,20 @@ class PseudoFile:
 
 
 class AppletRExec(RExec):
+    """A restricted execution environment for applets.
+
+    This class provides a sandboxed environment for running applet code. It
+    restricts access to modules and functions, and provides surrogate objects
+    for things like the file system.
+
+    Attributes:
+        app: The main application object.
+        appletgroup: The applet group this RExec object belongs to.
+        backup_modules: A dictionary of modules that have been backed up
+            during a reload.
+        special_modules: A list of modules that are special to the RExec
+            environment.
+    """
 
     # Allow importing the ILU Python runtime
     ok_builtin_modules = RExec.ok_builtin_modules + ('iluPr',)
@@ -135,6 +213,14 @@ class AppletRExec(RExec):
     ok_posix_names = ('error',)
 
     def __init__(self, hooks=None, verbose=1, app=None, group=None):
+        """Initializes the AppletRExec.
+
+        Args:
+            hooks: An optional RHooks object.
+            verbose: The verbosity level.
+            app: The main application object.
+            group: The applet group.
+        """
         self.app = app
         self.appletgroup = group or "."
         self.backup_modules = {}
@@ -151,21 +237,25 @@ class AppletRExec(RExec):
     # XXX The path manipulations below are not portable to the Mac or PC
 
     def set_urlpath(self, url):
+        """Adds a URL to the module search path."""
         self.reset_urlpath()
         path = self.modules['sys'].path
         path.append(url)
 
     def reset_urlpath(self):
+        """Resets the module search path to its original state."""
         path = self.modules['sys'].path
         path[:] = self.get_url_free_path()
 
     def get_url_free_path(self):
+        """Gets the module search path without any URLs."""
         path = self.modules['sys'].path
         return filter(lambda x: not is_url(x), path)
 
     # XXX It would be cool if make_foo() would be invoked on "import foo"
 
     def make_initial_modules(self):
+        """Creates the initial set of modules for the RExec environment."""
         RExec.make_initial_modules(self)
         self.make_al()
         self.make_socket()
@@ -175,6 +265,7 @@ class AppletRExec(RExec):
         self.make_os()
 
     def make_os(self):
+        """Creates a surrogate 'os' module."""
         from Bastion import Bastion
         s = OSSurrogate(self)
         b = Bastion(s)
@@ -190,9 +281,11 @@ class AppletRExec(RExec):
         self.modules['ospath'] = self.modules[os.name + 'path'] = b.path
 
     def make_osname(self):
+        """Does nothing. This is here to override the base class method."""
         pass
 
     def make_iluRt(self):
+        """Creates a surrogate 'iluRt' module."""
         try:
             import iluRt
         except ImportError:
@@ -200,6 +293,7 @@ class AppletRExec(RExec):
         m = self.copy_except(iluRt, ())
  
     def make_al(self):
+        """Creates a surrogate 'al' module."""
         try:
             import al
         except ImportError:
@@ -207,6 +301,7 @@ class AppletRExec(RExec):
         m = self.copy_except(al, ())
  
     def make_socket(self):
+        """Creates a surrogate 'socket' module."""
         try:
             import socket
         except ImportError:
@@ -215,6 +310,7 @@ class AppletRExec(RExec):
         # XXX Ought to only allow connections to host from which applet loaded
 
     def make_sunaudiodev(self):
+        """Creates a surrogate 'sunaudiodev' module."""
         try:
             import sunaudiodev
         except ImportError:
@@ -222,14 +318,20 @@ class AppletRExec(RExec):
         m = self.copy_except(sunaudiodev, ())
 
     def make_types(self):
+        """Creates a surrogate 'types' module."""
         m = self.copy_except(types, ())
 
     def r_open(self, file, mode='r', buf=-1):
+        """Restricted version of open()."""
         return self.modules['os'].fopen(file, mode, buf)
 
     # Cool reload hacks.  XXX I'll explain this some day...
 
     def set_reload(self):
+        """Prepares the RExec environment for a reload.
+
+        This method backs up all non-special modules so they can be reloaded.
+        """
         for mname, module in self.modules.items():
             if mname not in self.special_modules and \
                mname not in self.ok_builtin_modules and \
@@ -238,12 +340,24 @@ class AppletRExec(RExec):
                 del self.modules[mname]
 
     def clear_reload(self):
+        """Clears the reload state."""
         self.backup_modules = {}
 
     def add_module(self, mname):
-        if self.modules.has_key(mname):
+        """Adds a module to the RExec environment.
+
+        If the module is in the backup dictionary, it is restored from there.
+        Otherwise, it is loaded normally.
+
+        Args:
+            mname: The name of the module to add.
+
+        Returns:
+            The module object.
+        """
+        if mname in self.modules:
             return self.modules[mname]
-        if self.backup_modules.has_key(mname):
+        if mname in self.backup_modules:
             self.modules[mname] = m = self.backup_modules[mname]
             self.backup_modules[mname]
             return m
@@ -251,13 +365,11 @@ class AppletRExec(RExec):
 
 
 class OSSurrogate:
+    """A surrogate for the 'os' module.
 
-    """Public methods of this class are functions in module 'os'.
-
-    Methods whose name begins with '_' and all class and instance
-    variables are private (thanks to bastionization), except those
-    variables explicitly copied by make_os() above.
-
+    This class provides a restricted version of the 'os' module for applets.
+    It restricts file access to a specific directory and provides a safe
+    subset of the 'os' module's functions.
     """
 
     # Class variables (these become public by explicit assignment in
@@ -273,6 +385,11 @@ class OSSurrogate:
     # Private methods
 
     def __init__(self, rexec):
+        """Initializes the OSSurrogate.
+
+        Args:
+            rexec: The AppletRExec instance.
+        """
         self.rexec = rexec
         self.app = rexec.app
         self.appletsdir = os.path.join(self.app.graildir, "applets")
@@ -292,36 +409,41 @@ class OSSurrogate:
         self.path = OSPathSurrogate(self)
 
     def _path(self, path, writing=0, error=os.error):
-        """Convert and check a pathname.
+        """Converts and checks a pathname.
 
-        This method implements the policy of which files an applet
-        group is allowed to read or write.
+        This method implements the security policy for file access.
 
-        Current policy:
+        Args:
+            path: The path to check.
+            writing: A flag indicating whether the file is being opened for
+                writing.
+            error: The exception to raise on error.
 
-        - all files are readable except if their name starts with "."
-        - only files inside the applet's home directory are writable
+        Returns:
+            The normalized, absolute path.
 
+        Raises:
+            error: If the path is not allowed.
         """
         path = os.path.join(self._pwd(), path)
         path = os.path.normpath(path)
         if writing:
             n = len(self.home)
             if not(path[:n] == self.home and path[n:n+1] == os.sep):
-                raise error, "can't write outside applet's own directory"
+                raise error("can't write outside applet's own directory")
             head, tail = os.path.split(path)
             if tail[:1] == "." and tail not in (os.curdir, os.pardir):
-                raise error, "can't write filenames beginning with '.'"
+                raise error("can't write filenames beginning with '.'")
         return path
 
     def _pwd(self):
-        """Return the current working directory, call _home() if necessary."""
+        """Returns the current working directory, creating it if necessary."""
         if self.pwd == self.home:
             return self._home()
         return self.pwd
 
     def _home(self):
-        """Make sure self.home exists."""
+        """Creates the applet's home directory if it does not exist."""
         if not self.home_made:
             if not os.path.exists(self.home):
                 if not os.path.exists(self.appletsdir):
@@ -334,26 +456,28 @@ class OSSurrogate:
     # IN ALPHABETICAL ORDER, PLEASE!
 
     def fopen(self, path, mode='r', bufsize=-1):
-        """Substitute for __builtin__.open()."""
+        """A restricted version of open()."""
         path = self._path(path, writing=(mode[:1] != 'r'), error=IOError)
         return open(path, mode, bufsize)
 
     def getcwd(self):
+        """Gets the current working directory."""
         return self._pwd()
 
     def getpid(self):
-        """Return a fake pid for tempfile etc.
+        """Returns a fake process ID.
 
         Since TMPDIR is set to the applet's home dir anyway, there's
         no need for this to be randomly changing.
-
         """
         return 666
 
     def listdir(self, path):
+        """Lists the contents of a directory."""
         return os.listdir(self._path(path))
 
     def unlink(self, path):
+        """Deletes a file."""
         path = self._path(path, 1)
         os.unlink(path)
 
@@ -372,8 +496,14 @@ def %(name)s(self, path):
 """
 
 class OSPathSurrogate:
+    """A surrogate for the 'os.path' module."""
 
     def __init__(self, ossurrogate):
+        """Initializes the OSPathSurrogate.
+
+        Args:
+            ossurrogate: The OSSurrogate instance.
+        """
         self.os = ossurrogate
 
     for name in ('normcase', 'isabs', 'split', 'splitext',
@@ -384,34 +514,40 @@ class OSPathSurrogate:
         exec TEMPLATE2 % {'name': name}
 
     def join(self, *args):
-        return apply(os.path.join, args)
+        """Joins path components."""
+        return os.path.join(*args)
 
     for name in ('exists', 'isdir', 'isfile', 'islink', 'ismount'):
         exec TEMPLATE3 % {'name': name}
 
     def samefile(self, p1, p2):
+        """Checks if two paths refer to the same file."""
         return os.path.samefile(self.os._path(p1), self.os._path(p2))
 
     def walk(self, top, func, arg):
+        """Walks a directory tree."""
         return os.path.walk(self.os._path(top), func, arg)
 
     def expanduser(self, path):
+        """Expands a path containing a tilde."""
         if path[:1] == '~' and path[1:2] == os.sep:
             path = self.os.environ['HOME'] + path[1:]
         return path
 
 
 def group2dirname(group):
-    """Convert an applet group name to an acceptable unique directory name.
+    """Converts an applet group name to a unique and safe directory name.
 
-    We take up to 15 characters from the group name, truncated in the
-    middle if it's longer, and substituting '_' for certain
-    characters; then we append 16 hex bytes which are the first 8
-    bytes of the MD5 checksum of the original group name.  This
-    guarantees sufficient uniqueness, while it's still possible to
-    guess which group a particular directory belongs to.  (A log file
-    should probably be maintained making the mapping explicit.)
+    This function takes a group name and creates a directory name that is
+    short, unique, and safe for all file systems. It does this by taking
+    a truncated and sanitized version of the group name and appending a
+    checksum.
 
+    Args:
+        group: The applet group name.
+
+    Returns:
+        A safe and unique directory name as a string.
     """
     import regsub, md5
     sum = md5.new(group).digest()
@@ -423,5 +559,12 @@ def group2dirname(group):
 
 
 def hexstring(s):
-    """Convert a string to hex bytes.  Obfuscated for maximum speed."""
+    """Converts a string to a hex representation.
+
+    Args:
+        s: The string to convert.
+
+    Returns:
+        A string of hexadecimal characters.
+    """
     return "%02x"*len(s) % tuple(map(ord, s))

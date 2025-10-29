@@ -19,12 +19,34 @@ import re
 
 
 class parse_text_paragraph:
+    """A parser for text/paragraph documents.
+
+    This class parses text where paragraphs are separated by one or more
+    end-of-line characters.
+
+    Attributes:
+        __fmt: The formatter object.
+    """
     def __init__(self, viewer, reload=0):
+        """Initializes the parser.
+
+        Args:
+            viewer: The viewer object.
+            reload: An optional flag indicating a reload.
+        """
         self.__fmt = formatter.AbstractFormatter(viewer)
 
     __eol_re = re.compile("[\r\n]+")
 
     def feed(self, data):
+        """Processes a chunk of text.
+
+        This method splits the text into paragraphs and sends them to the
+        formatter.
+
+        Args:
+            data: The chunk of text to process.
+        """
         while data:
             m = self.__eol_re.search(data)
             if m:
@@ -36,4 +58,5 @@ class parse_text_paragraph:
                 data = ''
 
     def close(self):
+        """Finalizes the parsing process."""
         self.__fmt = None

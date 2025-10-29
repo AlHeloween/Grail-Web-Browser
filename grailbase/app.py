@@ -13,8 +13,19 @@ class Application:
 
     This class provides the basic application infrastructure, including
     preferences management, icon path setup, and MIME type guessing.
+
+    Attributes:
+        prefs: The preferences object for the application.
+        graildir: The path to the user's .grail directory.
+        iconpath: A list of paths to search for icons.
     """
     def __init__(self, prefs=None):
+        """Initializes the Application.
+
+        Args:
+            prefs: An optional preferences object. If not provided, a new
+                one is created.
+        """
         utils._grail_app = self
         if prefs is None:
             import GrailPrefs
@@ -36,10 +47,24 @@ class Application:
         mimetypes.init(mimetypes.knownfiles + [typefile])
 
     def get_loader(self, name):
+        """Gets a loader by name.
+
+        Args:
+            name: The name of the loader to get.
+
+        Returns:
+            The loader object.
+        """
         return self.__loaders[name]
 
     def add_loader(self, name, loader):
-        localdir = string.join(string.split(name, "."), os.sep)
+        """Adds a loader to the application.
+
+        Args:
+            name: The name of the loader.
+            loader: The loader object to add.
+        """
+        localdir = os.path.join(*name.split("."))
         userdir = os.path.join(self.graildir, localdir)
         loader.add_directory(userdir)
         self.__loaders[name] = loader
@@ -52,20 +77,35 @@ class Application:
     #######################################################################
 
     def exception_dialog(self, message="", *args):
-        raise RuntimeError, "Subclass failed to implement exception_dialog()."
+        """Displays an exception dialog.
+
+        This method is intended to be overridden by subclasses.
+
+        Args:
+            message: The message to display in the dialog.
+            *args: Additional arguments.
+        """
+        raise RuntimeError("Subclass failed to implement exception_dialog().")
 
 
-    __data_scheme_re = regex.compile(
-        "data:\([^,;]*\)\(;\([^,]*\)\|\),", regex.casefold)
+    import re
+    __data_scheme_re = re.compile(
+        "data:([^,;]*)(;([^,]*)|),", re.IGNORECASE)
 
     def guess_type(self, url):
-        """Guess the type of a file based on its URL.
+        """Guesses the MIME type of a file based on its URL.
 
-        Return value is a string of the form type/subtype, usable for
-        a MIME Content-type header; or None if no type can be guessed.
+        This method can handle "data:" URLs as well as standard file URLs.
 
+        Args:
+            url: The URL to guess the type of.
+
+        Returns:
+            A tuple of (type/subtype, encoding) or (None, None) if the type
+            cannot be guessed.
         """
-        if self.__data_scheme_re.match(url) >= 0:
-            scheme = self.__data_scheme_re.group(1) or "text/plain"
-            return string.lower(scheme), self.__data_scheme_re.group(3)
+        match = self.__data_scheme_re.match(url)
+        if match:
+            scheme = match.group(1) or "text/plain"
+            return scheme.lower(), match.group(3)
         return mimetypes.guess_type(url)
