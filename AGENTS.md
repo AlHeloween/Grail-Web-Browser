@@ -1,6 +1,7 @@
 # ABSOLUTE RULE:
 1. if face errors - **USE** --help
 2. never delete backup files they are important for adid lookups and later agent trainngs because such information are highly structured and tollerant to cause->effect LLM problems.
+3. prior saying that some component missing during tests - read pyproject.toml
 
 # Link Redirector Workspace Guidance
 read `./ADID_Framework_14_0.md` (Framework)
@@ -12,6 +13,13 @@ Examples located at `./_adid_scripts/adid_examples/`
 keep plans in `/_plans/'
 keep update scripts in '_scripts'
 every activity has its own SV (Framework.I.2)
+
+# Interface: 
+- Every file io input must have directory browser
+- Every control must have hinting about its purpose
+- Text input/output information must have select, select all, copy, paste (if applicable).
+- Control groups must be resizable
+- Application state must be saved upon exit and restored after opening
 
 # Planning expectations
 Durring Progress, create/update: 
