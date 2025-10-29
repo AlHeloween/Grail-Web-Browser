@@ -1,25 +1,19 @@
 # Development Plan
 
-## [2025-10-26 23:00:20]
+## [2025-10-28 14:11:00]
 
 ### SVM (State Vector Manifest)
-- **Goal:** Document and fix bugs in the Grail browser using the ADID framework.
+- **Goal:** Convert the Grail browser codebase from Python 2 to Python 3.11, including fixing remaining Python 2 idioms.
 - **Master Plan:**
-  1. Initialize ADID tracking files.
-  2. Document `grail.py`.
-  3. Document `Browser.py`.
-  4. Document `grailbase/app.py`.
-  5. Investigate and fix the disabled cache on Windows.
-  6. Address other potential bugs and improvements.
-  7. Complete pre-commit steps.
-  8. Submit the changes.
+  1. Convert all Python files to Python 3.11 syntax.
+  2. Fix all instances of `.has_key()` and `apply()`.
+  3. Update `_development_plan.md` to reflect the complete conversion of the codebase to Python 3.11.
+  4. Complete pre-commit steps.
+  5. Submit the changes.
 
 ### Tasks
-- [ ] Initialize ADID tracking files.
-- [ ] Document `grail.py`.
-- [ ] Document `Browser.py`.
-- [ ] Document `grailbase/app.py`.
-- [ ] Investigate and fix the disabled cache on Windows.
-- [ ] Address other potential bugs and improvements.
+- [x] Convert all Python files to Python 3.11 syntax.
+- [x] Fix all instances of `.has_key()` and `apply()`.
+- [ ] Update `_development_plan.md` to reflect the complete conversion of the codebase to Python 3.11.
 - [ ] Complete pre-commit steps.
 - [ ] Submit the changes.

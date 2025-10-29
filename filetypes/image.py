@@ -19,7 +19,7 @@ def init_types():
     if AsyncImage.isPILAllowed():
         import Image
         for datatype in Image.MIME.values():
-            type, subtype = string.splitfields(datatype, '/')
+            type, subtype = datatype.split('/')
             if type == "image":
                 allowed_types[datatype] = datatype
     else:
@@ -31,6 +31,19 @@ def init_types():
 
 
 def embed_image(parser, attrs):
+    """Embeds an image in the document.
+
+    This function is called by the HTML parser when an <OBJECT> tag with an
+    image type is encountered. It parses the attributes, determines the image
+    type, and creates an ImageObject to handle the image.
+
+    Args:
+        parser: The HTML parser instance.
+        attrs: A list of attributes for the <OBJECT> tag.
+
+    Returns:
+        An ImageObject if the image can be embedded, otherwise None.
+    """
     src = extract_keyword('data', attrs)
     if src:
         src = parser.context.get_baseurl(src)
@@ -50,26 +63,47 @@ def embed_image(parser, attrs):
     # Make sure allowed_types has been initialized.
     if allowed_types is None:
         init_types()
-    if not allowed_types.has_key(datatype):
+    if datatype not in allowed_types:
         return None
 
     # Image type is supported; get parameters and load it.
-    shapes = attrs.has_key('shapes')
+    shapes = 'shapes' in attrs
     border = extract_keyword('border', attrs, shapes and 2 or 0,
-                             conv=string.atoi)
-    width = extract_keyword('width', attrs, 0, conv=string.atoi)
-    height = extract_keyword('height', attrs, 0, conv=string.atoi)
-    hspace = extract_keyword('hspace', attrs, 0, conv=string.atoi)
-    vspace = extract_keyword('vspace', attrs, 0, conv=string.atoi)
+                             conv=int)
+    width = extract_keyword('width', attrs, 0, conv=int)
+    height = extract_keyword('height', attrs, 0, conv=int)
+    hspace = extract_keyword('hspace', attrs, 0, conv=int)
+    vspace = extract_keyword('vspace', attrs, 0, conv=int)
     return ImageObject(parser, src, shapes=shapes, border=border, width=width,
                        height=height, hspace=hspace, vspace=vspace)
 
 
 class ImageObject(HTMLParser.Embedding):
+    """An object that represents an embedded image.
+
+    This class handles the creation of the image and its associated image map,
+    if any.
+
+    Attributes:
+        __map: The image map associated with the image.
+    """
     __map = None
 
     def __init__(self, parser, src, shapes=0, border=0, width=0,
                  height=0, hspace=0, vspace=0):
+        """Initializes the ImageObject.
+
+        Args:
+            parser: The HTML parser instance.
+            src: The URL of the image.
+            shapes: A flag indicating whether the image has an associated
+                image map.
+            border: The border width for the image.
+            width: The width of the image.
+            height: The height of the image.
+            hspace: The horizontal space around the image.
+            vspace: The vertical space around the image.
+        """
         if shapes:
             self.__map, thunk = self.__make_map(parser.context)
         else:
@@ -80,6 +114,14 @@ class ImageObject(HTMLParser.Embedding):
                             parser.reload1, hspace=hspace, vspace=vspace)
 
     def __make_map(self, context):
+        """Creates an image map.
+
+        Args:
+            context: The URI context.
+
+        Returns:
+            A tuple of (ImageMap.MapInfo, ImageMap.MapThunk).
+        """
         global __map_count
         try:
             __map_count = __map_count + 1
@@ -92,6 +134,11 @@ class ImageObject(HTMLParser.Embedding):
         return map, ImageMap.MapThunk(context, name)
 
     def anchor(self, attrs):
+        """Adds an anchor to the image map.
+
+        Args:
+            attrs: A list of attributes for the anchor.
+        """
         if not self.__map:
             return
         href = extract_keyword('href', attrs)

@@ -23,9 +23,9 @@ import Tkinter
 from formatter import AS_IS
 
 try:
-    from cStringIO import StringIO
+    from io import StringIO
 except ImportError:
-    from StringIO import StringIO
+    from io import StringIO
 
 
 ERROR_FILE = os.path.join("icons", "sadsmiley.gif")
@@ -47,16 +47,31 @@ else:
 
 
 class PILGifParser(pil_interface):
+    """A parser for GIF images using the Python Imaging Library (PIL).
+
+    This class handles both static and animated GIFs.
+
+    Attributes:
+        im: The PIL Image object.
+        currentpos: The current frame number for animated GIFs.
+        duration: The duration of the current frame in milliseconds.
+        loop: The number of times to loop an animated GIF.
+    """
     im = None
     currentpos = 0
     duration = 0
     loop = 0
 
     def close(self):
+        """Finalizes the parsing process.
+
+        This method decodes the image data and displays the first frame. If the
+        image is an animated GIF, it starts the animation loop.
+        """
         if self.buf:
             self.label.config(text="<decoding>")
             self.label.update_idletasks()
-            data = string.joinfields(self.buf, "")
+            data = "".join(self.buf)
             self.buf = None             # free lots of memory!
             try:
                 self.im = im = Image.open(StringIO(data))
@@ -70,15 +85,15 @@ class PILGifParser(pil_interface):
                 stdout = sys.stdout
                 try:
                     sys.stdout = sys.stderr
-                    print "Error decoding image:"
-                    print str(sys.exc_type) + ":", sys.exc_value
+                    import traceback
+                    traceback.print_exc()
                 finally:
                     sys.stdout = stdout
             else:
                 self.label.config(image=tkim)
-                if im.info.has_key("duration"):
+                if "duration" in im.info:
                     self.duration = im.info["duration"]
-                if im.info.has_key("loop"):
+                if "loop" in im.info:
                     self.duration = self.duration or 100
                     self.loop = im.info["loop"]
                     self.data = data
@@ -93,6 +108,7 @@ class PILGifParser(pil_interface):
             self.viewer.text.insert(Tkinter.END, '\nBroken Image!')
 
     def next_image(self):
+        """Displays the next frame of an animated GIF."""
         newpos = self.currentpos + 1
         try:
             self.im.seek(newpos)
@@ -110,6 +126,7 @@ class PILGifParser(pil_interface):
         self.after_id = self.label.after(self.duration, self.next_image)
 
     def reset_loop(self):
+        """Resets an animated GIF to the first frame."""
         im = Image.open(StringIO(self.data))
         im.load()
         self.tkim.paste(im)
@@ -117,18 +134,31 @@ class PILGifParser(pil_interface):
         self.currentpos = 0
 
     def cancel_loop(self, *args):
+        """Cancels the animation loop for a GIF."""
         self.viewer.unregister_reset_interest(self.cancel_loop)
         self.label.after_cancel(self.after_id)
 
 
 class TkGifParser:
-    """Parser for image/gif files.
+    """A parser for GIF images using the standard Tkinter PhotoImage.
 
-    Collect all the data on a temp file and then create an in-line
-    image from it.
+    This class saves the GIF data to a temporary file and then loads it
+    into a PhotoImage. It does not support animated GIFs.
+
+    Attributes:
+        tf: The temporary file object.
+        tfname: The name of the temporary file.
+        viewer: The viewer object.
+        label: The Tkinter Label widget used to display the image.
     """
 
     def __init__(self, viewer, reload=0):
+        """Initializes the TkGifParser.
+
+        Args:
+            viewer: The viewer object.
+            reload: An optional flag indicating a reload.
+        """
         self.tf = self.tfname = None
         self.viewer = viewer
         self.viewer.new_font((AS_IS, AS_IS, AS_IS, 1))
@@ -139,9 +169,19 @@ class TkGifParser:
         self.viewer.add_subwindow(self.label)
 
     def feed(self, data):
+        """Writes a chunk of data to the temporary file.
+
+        Args:
+            data: The chunk of data to write.
+        """
         self.tf.write(data)
 
     def close(self):
+        """Finalizes the parsing process.
+
+        This method closes the temporary file, creates a PhotoImage from it,
+        and then deletes the file.
+        """
         if self.tf:
             self.tf.close()
             self.tf = None
@@ -163,4 +203,4 @@ def parse_image_gif(*args, **kw):
         parse_image_gif = PILGifParser
     else:
         parse_image_gif = TkGifParser
-    return apply(parse_image_gif, args, kw)
+    return parse_image_gif(*args, **kw)

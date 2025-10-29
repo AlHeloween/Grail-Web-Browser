@@ -13,16 +13,28 @@ import sgml.HTMLParser
 
 
 def embed_text_x_python(parser, attrs):
-    """<OBJECT> Handler for Python applets."""
+    """Handles the embedding of Python applets within a document.
+
+    This function is called by the HTML parser when an <OBJECT> tag with a
+    type of 'text/x-python' is encountered. It parses the attributes and
+    creates an AppletEmbedding to handle the applet.
+
+    Args:
+        parser: The HTML parser instance.
+        attrs: A list of attributes for the <OBJECT> tag.
+
+    Returns:
+        An AppletEmbedding object if the applet can be loaded, otherwise None.
+    """
     extract = grailutil.extract_keyword
-    width = extract('width', attrs, conv=string.atoi)
-    height = extract('height', attrs, conv=string.atoi)
-    menu = extract('menu', attrs, conv=string.strip)
-    classid = extract('classid', attrs, conv=string.strip)
-    codebase = extract('codebase', attrs, conv=string.strip)
+    width = extract('width', attrs, conv=int)
+    height = extract('height', attrs, conv=int)
+    menu = extract('menu', attrs, conv=str.strip)
+    classid = extract('classid', attrs, conv=str.strip)
+    codebase = extract('codebase', attrs, conv=str.strip)
     align = extract('align', attrs, 'baseline')
-    vspace = extract('vspace', attrs, 0, conv=string.atoi)
-    hspace = extract('hspace', attrs, 0, conv=string.atoi)
+    vspace = extract('vspace', attrs, 0, conv=int)
+    hspace = extract('hspace', attrs, 0, conv=int)
     apploader = AppletLoader.AppletLoader(
         parser, width=width, height=height, menu=menu,
         classid=classid, codebase=codebase,
@@ -35,27 +47,67 @@ def embed_text_x_python(parser, attrs):
 
 
 class AppletEmbedding(sgml.HTMLParser.Embedding):
-    """Applet interface for use with <OBJECT> / <PARAM> elements."""
+    """An interface for Python applets embedded with <OBJECT> and <PARAM>
+    elements.
+
+    This class provides a simple interface for the HTML parser to interact
+    with the applet loader.
+
+    Attributes:
+        __apploader: The AppletLoader instance.
+    """
 
     def __init__(self, apploader):
+        """Initializes the AppletEmbedding.
+
+        Args:
+            apploader: The AppletLoader instance.
+        """
         self.__apploader = apploader
 
     def param(self, name, value):
+        """Sets a parameter for the applet.
+
+        Args:
+            name: The name of the parameter.
+            value: The value of the parameter.
+        """
         self.__apploader.set_param(name, value)
 
     def end(self):
+        """Starts the applet."""
         self.__apploader.go_for_it()
 
 
 class parse_text_x_python:
+    """A parser for Python source code that provides syntax highlighting.
+
+    This class parses a Python source file, colorizes it, and displays it
+    in the viewer.
+
+    Attributes:
+        __viewer: The viewer object.
+        __source: The Python source code.
+    """
     def __init__(self, viewer, reload=0):
-	self.__viewer = viewer
-	self.__source = ''
-	viewer.new_font((None, 0, 0, 1))
+        """Initializes the parser.
+
+        Args:
+            viewer: The viewer object.
+            reload: An optional flag indicating a reload.
+        """
+        self.__viewer = viewer
+        self.__source = ''
+        viewer.new_font((None, 0, 0, 1))
 
     def feed(self, data):
-	self.__source = self.__source + data
-	self.__viewer.send_literal_data(data)
+        """Processes a chunk of source code.
+
+        Args:
+            data: The chunk of source code to process.
+        """
+        self.__source = self.__source + data
+        self.__viewer.send_literal_data(data)
 
     IGNORED_TERMINALS = (
 	token.ENDMARKER, token.NEWLINE, token.INDENT, token.DEDENT)
@@ -67,68 +119,80 @@ class parse_text_x_python:
     __ws_width = regex.compile("[%s]*" % string.whitespace).match
 
     def close(self):
-	self.show("Colorizing Python source text - parsing...")
-	import parser
-	try:
-	    nodes = parser.ast2list(parser.suite(self.__source), 1)
-	except parser.ParserError, err:
-	    self.__viewer.context.message(
-		"Syntax error in Python source: %s" % err)
-	    return
-	self.setup_tags()
-	from types import IntType, ListType
-	ISTERMINAL = token.ISTERMINAL
-	wanted = self.__wanted_terminals.has_key
-	ws_width = self.__ws_width
-	tag_add = self.tag_add = self.__viewer.text.tag_add
-	colorize = self.colorize
-	prevline, prevcol = 0, 0
-	sourcetext = string.split(self.__source, "\n")
-	sourcetext.insert(0, '')
-	self.show("Colorizing Python source text - coloring...")
-	steps = 0
-	while nodes:
-	    steps = steps + 1
-	    if not (steps % 2000): self.show()
-	    node = nodes[0]
-	    del nodes[0]
-	    if type(node) is ListType:
-		ntype = node[0]
-		if wanted(ntype):
-		   [ntype, nstr, lineno] = node
-		   # The parser spits out the line number the token ENDS on,
-		   # not the line it starts on!
-		   if ntype == token.STRING and "\n" in nstr:
-		       strlines = string.split(nstr, "\n")
-		       endpos = lineno, len(strlines[-1]), sourcetext[lineno]
-		       lineno = lineno - len(strlines) + 1
-		   else:
-		       endpos = ()
-		   if prevline != lineno:
-		       tag_add('python:comment',
-			       "%d.%d" % (prevline, prevcol), "%d.0" % lineno)
-		       prevcol = 0
-		       prevline = lineno
-		       sourceline = sourcetext[lineno]
-		   prevcol = prevcol + ws_width(sourceline, prevcol)
-		   colorize(ntype, nstr, lineno, prevcol)
-		   # point prevline/prevcol to 1st char after token:
-		   if endpos:
-		       prevline, prevcol, sourceline = endpos
-		   else:
-		       prevcol = prevcol + len(nstr)
-		else:
-		    nodes = node[1:] + nodes
-	# end of last token to EOF is a comment...
-	start = "%d.%d" % (prevline or 1, prevcol)
-	tag_add('python:comment', start, Tkinter.END)
-	self.__viewer.context.message_clear()
-	self.tag_add = None
+        """Finalizes the parsing and colorizing process."""
+        self.show("Colorizing Python source text - parsing...")
+        import ast
+        try:
+            nodes = ast.parse(self.__source)
+        except SyntaxError as err:
+            self.__viewer.context.message(
+                "Syntax error in Python source: %s" % err)
+            return
+        self.setup_tags()
+        from types import IntType, ListType
+        ISTERMINAL = token.ISTERMINAL
+        wanted = self.__wanted_terminals.__contains__
+        ws_width = self.__ws_width
+        tag_add = self.tag_add = self.__viewer.text.tag_add
+        colorize = self.colorize
+        prevline, prevcol = 0, 0
+        sourcetext = self.__source.split("\n")
+        sourcetext.insert(0, '')
+        self.show("Colorizing Python source text - coloring...")
+        steps = 0
+        for node in ast.walk(nodes):
+            steps = steps + 1
+            if not (steps % 2000): self.show()
+            if hasattr(node, 'lineno'):
+                lineno = node.lineno
+                col_offset = node.col_offset
+                if hasattr(node, 'value'):
+                    nstr = str(node.value)
+                    ntype = token.STRING
+                elif isinstance(node, ast.Name):
+                    nstr = node.id
+                    ntype = token.NAME
+                elif isinstance(node, ast.keyword):
+                    nstr = node.arg
+                    ntype = token.NAME
+                else:
+                    continue
+                # The parser spits out the line number the token ENDS on,
+                # not the line it starts on!
+                if ntype == token.STRING and "\n" in nstr:
+                    strlines = nstr.split("\n")
+                    endpos = lineno, len(strlines[-1]), sourcetext[lineno]
+                    lineno = lineno - len(strlines) + 1
+                else:
+                    endpos = ()
+                if prevline != lineno:
+                    tag_add('python:comment',
+                            "%d.%d" % (prevline, prevcol), "%d.0" % lineno)
+                    prevcol = 0
+                    prevline = lineno
+                    sourceline = sourcetext[lineno]
+                prevcol = prevcol + ws_width(sourceline, prevcol)
+                colorize(ntype, nstr, lineno, prevcol)
+                # point prevline/prevcol to 1st char after token:
+                if endpos:
+                    prevline, prevcol, sourceline = endpos
+                else:
+                    prevcol = prevcol + len(nstr)
+        # end of last token to EOF is a comment...
+        start = "%d.%d" % (prevline or 1, prevcol)
+        tag_add('python:comment', start, Tkinter.END)
+        self.__viewer.context.message_clear()
+        self.tag_add = None
 
     def show(self, message=None):
-	if message:
-	    self.__viewer.context.message(message)
-	self.__viewer.context.browser.root.update_idletasks()
+        """Displays a message in the status bar.
+
+        Args:
+            message: The message to display.
+        """
+        if message:
+            self.__viewer.context.message(message)
+        self.__viewer.context.browser.root.update_idletasks()
 
     # Each element in this table maps an identifier to a tuple of
     # the tag it should be marked with and the tag the next token
@@ -194,7 +258,7 @@ class parse_text_x_python:
 	if self.__next_tag:
 	    self.tag_add(self.__next_tag, start, end)
 	    self.__next_tag = None
-	elif self.__keywords.has_key(nstr):
+	elif nstr in self.__keywords:
 	    tag, self.__next_tag = self.__keywords[nstr]
 	    self.tag_add(tag, start, end)
 	elif ntype == token.STRING:

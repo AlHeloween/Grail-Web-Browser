@@ -20,15 +20,26 @@ components of its group.
 """
 
 import string
-import regex
+import re
 
-validpat = "^\([-a-z0-9_]*\)--\([-a-z0-9_]*\):\(.*\)$"
-valid = regex.compile(validpat, regex.casefold)
+validpat = r"^([-a-z0-9_]*)--([-a-z0-9_]*):(.*)$"
+valid = re.compile(validpat, re.IGNORECASE)
 
 debug = 0
 
 def parseprefs(fp):
-    """Parse a Grail preferences file.  See module docstring."""
+    """Parses a Grail preferences file.
+
+    This function reads a preferences file, which is formatted like a series of
+    RFC822 headers, and returns a nested dictionary of the preferences.
+
+    Args:
+        fp: An open file-like object to read the preferences from.
+
+    Returns:
+        A dictionary where keys are group names and values are dictionaries
+        of component names to values.
+    """
     groups = {}
     group = None                        # used for continuation line
     lineno = 0
@@ -43,27 +54,27 @@ def parseprefs(fp):
             # It looks line a continuation line.
             if group:
                 # Continue the previous line
-                value = string.strip(line)
+                value = line.strip()
                 if value:
                     if group[cn]:
                         group[cn] = group[cn] + "\n " + value
                     else:
                         group[cn] = value
-        elif valid.match(line) > 0:
+        elif valid.match(line):
             # It's a header line.
-            groupname, cn, value = valid.group(1, 2, 3)
-            groupname = string.lower(groupname)
-            cn = string.lower(cn)
-            value = string.strip(value)
-            if not groups.has_key(groupname):
+            groupname, cn, value = valid.match(line).groups()
+            groupname = groupname.lower()
+            cn = cn.lower()
+            value = value.strip()
+            if groupname not in groups:
                 groups[groupname] = group = {}
             else:
                 group = groups[groupname]
             group[cn] = value # XXX Override a previous value
-        elif string.strip(line) != "":
+        elif line.strip() != "":
             # It's a bad line.  Ignore it.
             if debug:
-                print "Error at", lineno, ":", `line`
+                print("Error at", lineno, ":", repr(line))
 
     return groups
 
@@ -71,10 +82,9 @@ def parseprefs(fp):
 def test():
     """Test program for parseprefs().
 
-    This takes a filename as command line argument;
-    if no filename is given, it parses ../data/grail-defaults.
-    It also times how long it takes.
-
+    This function takes a filename as a command line argument, parses it,
+    and prints the results. If no filename is given, it defaults to
+    '../data/grail-defaults'. It also times the parsing process.
     """
     import sys
     import time
@@ -89,20 +99,20 @@ def test():
     groups = parseprefs(fp)
     t1 = time.time()
     fp.close()
-    print "Parsing time", round(t1-t0, 3)
-    groupnames = groups.keys()
+    print("Parsing time", round(t1-t0, 3))
+    groupnames = list(groups.keys())
     groupnames.sort()
     for groupname in groupnames:
-        print
-        print groupname
-        print '=' * len(groupname)
-        print
+        print()
+        print(groupname)
+        print('=' * len(groupname))
+        print()
         group = groups[groupname]
-        componentnames = group.keys()
+        componentnames = list(group.keys())
         componentnames.sort()
         for cn in componentnames:
             value = group[cn]
-            print cn + ":", `value`
+            print(cn + ":", repr(value))
 
 
 if __name__ == '__main__':

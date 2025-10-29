@@ -13,26 +13,35 @@ BUFSIZE = 512                           # Smaller size for better response
 SLEEPTIME = 100                         # Milliseconds between regular checks
 
 class BaseReader:
+    """A base class for asynchronously reading data from a URL.
 
-    """Base reader class -- read from a URL in the background.
+    This class provides the core functionality for polling a URL API object,
+    reading data in the background, and reporting status updates.
 
-    Given an API object, poll it until it completes or an
-    unrecoverable error occurs.
-
-    Derived classes are supposed to override the handle_*() methods to
-    do something meaningful.
-
-    The sequence of calls made to the stop and handle_* functions can
-    be expressed by a regular expression:
-
-    (meta data* stop (eof | error) | stop handle_error)
-
+    Attributes:
+        context: The URI context.
+        api: The URL API object.
+        callback: The current callback function.
+        poller: The current poller function.
+        bufsize: The buffer size for reading data.
+        nbytes: The number of bytes read so far.
+        maxbytes: The total number of bytes to read.
+        shorturl: A shortened version of the URL for display.
+        message: A status message.
+        fno: The file number of the socket.
+        killed: A flag indicating whether the reader has been killed.
     """
 
     # Tuning parameters
     sleeptime = SLEEPTIME
 
     def __init__(self, context, api):
+        """Initializes the BaseReader.
+
+        Args:
+            context: The URI context.
+            api: The URL API object.
+        """
         self.context = context
         self.api = api
         self.callback = self.checkmeta
@@ -67,6 +76,10 @@ class BaseReader:
                         self.context.rmreader(self)
 
     def start(self):
+        """Starts the reading process.
+
+        This method sets up a file handler or a timer to poll for data.
+        """
         # when the protocol API is ready to go, it tells the reader
         # to get busy
         self.message = "awaiting server response"
@@ -113,9 +126,15 @@ class BaseReader:
         return "%s(...%s)" % (self.__class__.__name__, self.api)
 
     def update_status(self):
+        """Updates the status display for this reader."""
         self.context.new_reader_status() # Will call our __str__() method
 
     def update_maxbytes(self, headers):
+        """Updates the total number of bytes to be read.
+
+        Args:
+            headers: A dictionary of response headers.
+        """
         self.maxbytes = 0
         if headers.has_key('content-length'):
             try:
@@ -125,15 +144,22 @@ class BaseReader:
         self.update_status()
 
     def update_nbytes(self, data):
+        """Updates the number of bytes read so far.
+
+        Args:
+            data: The chunk of data that was just read.
+        """
         self.nbytes = self.nbytes + len(data)
         self.update_status()
 
     def kill(self):
+        """Stops the reader and reports an error."""
         self.killed = 1
         self.stop()
         self.handle_error(-1, "Killed", {})
 
     def stop(self):
+        """Stops the reader and cleans up resources."""
         if self.fno >= 0:
             fno = self.fno
             self.fno = -1
@@ -151,6 +177,8 @@ class BaseReader:
             self.context = None
 
     def checkapi_regularly(self):
+        """Periodically checks the API for data, for use when a file
+        descriptor is not available."""
         if not self.callback:
 ##          print "*** checkapi_regularly -- too late ***"
             return
@@ -161,6 +189,8 @@ class BaseReader:
             self.context.root.after(sleeptime, self.checkapi_regularly)
 
     def checkapi(self, *args):
+        """Callback for the file handler. This calls the current callback
+        function."""
         if not self.callback:
             print "*** checkapi -- too late ***"
             if self.fno >= 0:
@@ -179,16 +209,19 @@ class BaseReader:
             self.kill()
 
     def checkmeta(self):
+        """Checks for metadata from the URL."""
         self.message, ready = self.api.pollmeta()
         if ready:
             self.getapimeta()
 
     def checkdata(self):
+        """Checks for data from the URL."""
         self.message, ready = self.api.polldata()
         if ready:
             self.getapidata()
 
     def getapimeta(self):
+        """Gets metadata from the URL and calls the meta handler."""
         errcode, errmsg, headers = self.api.getmeta()
         self.callback = self.checkdata
         self.poller = self.api.polldata
@@ -208,6 +241,7 @@ class BaseReader:
             self.callback()             # XXX Handle httpAPI readahead
 
     def getapidata(self):
+        """Gets data from the URL and calls the data handler."""
         data = self.api.getdata(self.bufsize)
         if not data:
             self.handle_eof()
@@ -217,6 +251,7 @@ class BaseReader:
         self.handle_data(data)
 
     def geteverything(self):
+        """Reads all data from the URL synchronously."""
         if self.api:
             if self.callback == self.checkmeta:
                 self.getapimeta()
@@ -226,6 +261,10 @@ class BaseReader:
     # Derived classes are expected to override the following methods
 
     def handle_meta(self, errcode, errmsg, headers):
+        """Handles the metadata from the URL.
+
+        This method is intended to be overridden by subclasses.
+        """
         # May call self.stop()
         self.update_maxbytes(headers)
         if errcode != 200:
@@ -233,13 +272,25 @@ class BaseReader:
             self.handle_error(errcode, errmsg, headers)
 
     def handle_data(self, data):
+        """Handles a chunk of data from the URL.
+
+        This method is intended to be overridden by subclasses.
+        """
         # May call self.stop()
         pass
 
     def handle_error(self, errcode, errmsg, headers):
+        """Handles an error that occurred while reading from the URL.
+
+        This method is intended to be overridden by subclasses.
+        """
         # Called after self.stop() has been called
         pass
 
     def handle_eof(self):
+        """Handles the end of the data stream.
+
+        This method is intended to be overridden by subclasses.
+        """
         # Called after self.stop() has been called
         pass

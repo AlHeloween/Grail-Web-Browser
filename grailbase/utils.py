@@ -20,18 +20,44 @@ _grail_app = None
 # XXX (Actually it limps along just fine for Macintosh, too)
 
 def getgraildir():
+    """Gets the path to the user's .grail directory.
+
+    This is determined by the GRAILDIR environment variable, or defaults to
+    ~/.grail.
+
+    Returns:
+        The path to the .grail directory as a string.
+    """
     return getenv("GRAILDIR") or os.path.join(gethome(), ".grail")
 
 
 def get_grailroot():
+    """Gets the root directory of the Grail installation.
+
+    Returns:
+        The path to the Grail root directory as a string.
+    """
     return _grail_root
 
 
 def get_grailapp():
+    """Gets the main application object.
+
+    Returns:
+        The Application object.
+    """
     return _grail_app
 
 
 def gethome():
+    """Gets the user's home directory.
+
+    This function tries to determine the home directory from environment
+    variables or the password database.
+
+    Returns:
+        The path to the user's home directory as a string.
+    """
     try:
         home = getenv("HOME")
         if not home:
@@ -48,11 +74,30 @@ def gethome():
 
 
 def getenv(s):
-    if os.environ.has_key(s): return os.environ[s]
-    return None
+    """Gets an environment variable.
+
+    Args:
+        s: The name of the environment variable.
+
+    Returns:
+        The value of the environment variable, or None if it is not set.
+    """
+    return os.environ.get(s)
 
 
 def which(filename, searchlist=None):
+    """Finds a file in a list of directories.
+
+    This is similar to the Unix `which` command.
+
+    Args:
+        filename: The name of the file to find.
+        searchlist: An optional list of directories to search. If not
+            provided, `sys.path` is used.
+
+    Returns:
+        The full path to the file, or None if it is not found.
+    """
     if searchlist is None:
         import sys
         searchlist = sys.path
@@ -80,37 +125,50 @@ def establish_dir(dir):
 
 
 def conv_mimetype(type):
-    """Convert MIME media type specifications to tuples of
-    ('type/subtype', {'option': 'value'}).
+    """Converts a MIME media type string to a tuple.
+
+    Args:
+        type: The MIME type string (e.g., 'text/html; charset=utf-8').
+
+    Returns:
+        A tuple of (type/subtype, options_dict).
     """
     if not type:
         return None, {}
     if ';' in type:
-        i = string.index(type, ';')
+        i = type.index(';')
         opts = _parse_mimetypeoptions(type[i + 1:])
         type = type[:i]
     else:
         opts = {}
-    fields = string.split(string.lower(type), '/')
+    fields = type.lower().split('/')
     if len(fields) != 2:
-        raise ValueError, "Illegal media type specification."
-    type = string.join(fields, '/')
+        raise ValueError("Illegal media type specification.")
+    type = '/'.join(fields)
     return type, opts
 
 
 def _parse_mimetypeoptions(options):
+    """Parses MIME type options.
+
+    Args:
+        options: A string of MIME type options (e.g., 'charset=utf-8').
+
+    Returns:
+        A dictionary of the options.
+    """
     opts = {}
-    options = string.strip(options)
+    options = options.strip()
     while options:
         if '=' in options:
-            pos = string.find(options, '=')
-            name = string.lower(string.strip(options[:pos]))
-            value = string.strip(options[pos + 1:])
+            pos = options.find('=')
+            name = options[:pos].strip().lower()
+            value = options[pos + 1:].strip()
             options = ''
             if ';' in value:
-                pos = string.find(value, ';')
-                options = string.strip(value[pos + 1:])
-                value = string.strip(value[:pos])
+                pos = value.find(';')
+                options = value[pos + 1:].strip()
+                value = value[:pos].strip()
             if name:
                 opts[name] = value
         else:

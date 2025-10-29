@@ -29,7 +29,6 @@ for path in 'utils', 'pythonlib', 'ancillary', 'applets', script_dir:
     sys.path.insert(0, os.path.join(grail_root, path))
 
 import getopt
-import string
 import urllib
 import tempfile
 import posixpath
@@ -40,7 +39,7 @@ import grailbase.utils
 # TBD: hack!
 grailbase.utils._grail_root = grail_root
 import grailutil
-from Tkinter import *
+from tkinter import *
 import tktools
 import BaseApplication
 import grailbase.GrailPrefs
@@ -61,7 +60,18 @@ Options:
     -d <display>, --display <display> : override $DISPLAY
     -q : ignore user's grailrc module""" % sys.argv[0]
 
+
 def main(args=None):
+    """Initializes and runs the Grail application.
+
+    This function sets up user preferences, parses command-line arguments,
+    creates the main application instance, and opens the initial browser
+    window.
+
+    Args:
+        args: An optional list of strings representing the command-line
+            arguments. If None, `sys.argv[1:]` is used.
+    """
     prefs = grailbase.GrailPrefs.AllPreferences()
     global ilu_tk
     ilu_tk = 0
@@ -77,11 +87,11 @@ def main(args=None):
         opts, args = getopt.getopt(args, 'd:g:iq',
                                    ['display=', 'geometry=', 'noimages'])
         if len(args) > 1:
-            raise getopt.error, "too many arguments"
-    except getopt.error, msg:
+            raise getopt.error("too many arguments")
+    except getopt.error as msg:
         sys.stdout = sys.stderr
-        print "Command line error:", msg
-        print USAGE
+        print("Command line error:", msg)
+        print(USAGE)
         sys.exit(2)
 
     geometry = prefs.Get('browser', 'initial-geometry')
@@ -134,7 +144,7 @@ def main(args=None):
     # $GRAILDIR/user/grailrc.py if it exists.
     if user_init:
         try: import grailrc
-        except ImportError, e:
+        except ImportError as e:
             # Only catch this is grailrc itself doesn't import,
             # otherwise propogate.
             if e.args[0].split()[-1] != "grailrc":
@@ -157,14 +167,39 @@ def main(args=None):
 
 
 class URLReadWrapper:
-    """A wrapper for a URL read object that provides a file-like interface."""
+    """A wrapper for a URL read object that provides a file-like interface.
+
+    This class takes a URL API object and its metadata and presents a
+    standard file-like object with `read()`, `info()`, and `close()` methods.
+
+    Attributes:
+        api: The underlying URL API object for fetching data.
+        meta: The metadata associated with the URL, such as headers.
+        eof: A flag indicating whether the end of the data stream has been
+            reached.
+    """
 
     def __init__(self, api, meta):
+        """Initializes the URLReadWrapper.
+
+        Args:
+            api: The URL API object.
+            meta: The metadata associated with the URL.
+        """
         self.api = api
         self.meta = meta
         self.eof = 0
 
     def read(self, nbytes=-1):
+        """Reads data from the URL.
+
+        Args:
+            nbytes: The number of bytes to read. If -1, reads until the end
+                of the stream.
+
+        Returns:
+            A string containing the data read from the URL.
+        """
         buf = ''
         BUFSIZ = 8*1024
         while nbytes != 0 and not self.eof:
@@ -180,9 +215,15 @@ class URLReadWrapper:
         return buf
 
     def info(self):
+        """Returns the metadata for the URL.
+
+        Returns:
+            The metadata object associated with the URL.
+        """
         return self.meta
 
     def close(self):
+        """Closes the URL connection and cleans up resources."""
         api = self.api
         self.api = None
         self.meta = None
@@ -190,15 +231,40 @@ class URLReadWrapper:
             api.close()
 
 class SocketQueue:
-    """A queue for managing a pool of sockets."""
+    """A queue for managing a pool of sockets.
+
+    This class provides a mechanism to limit the number of concurrent open
+    sockets. Requests for sockets are queued if the maximum number of sockets
+    is already open.
+
+    Attributes:
+        max: The maximum number of open sockets allowed.
+        blocked: A list of requestors waiting for a socket.
+        callbacks: A dictionary mapping requestors to their callbacks.
+        open: The number of currently open sockets.
+    """
 
     def __init__(self, max_sockets):
+        """Initializes the SocketQueue.
+
+        Args:
+            max_sockets: The maximum number of sockets that can be open at
+                once.
+        """
         self.max = max_sockets
         self.blocked = []
         self.callbacks = {}
         self.open = 0
 
     def change_max(self, new_max):
+        """Changes the maximum number of allowed open sockets.
+
+        If the new maximum is greater than the old one, this method will
+        execute pending callbacks for blocked requests.
+
+        Args:
+            new_max: The new maximum number of open sockets.
+        """
         old_max = self.max
         self.max = new_max
         if old_max < new_max and len(self.blocked) > 0:
@@ -211,6 +277,15 @@ class SocketQueue:
             
 
     def request_socket(self, requestor, callback):
+        """Requests a socket from the queue.
+
+        If a socket is available, the callback is executed immediately.
+        Otherwise, the request is added to the queue.
+
+        Args:
+            requestor: The object requesting the socket.
+            callback: The function to call when a socket is available.
+        """
         if self.open >= self.max:
             self.blocked.append(requestor)
             self.callbacks[requestor] = callback
@@ -219,6 +294,14 @@ class SocketQueue:
             callback()
 
     def return_socket(self, owner):
+        """Returns a socket to the queue, making it available for others.
+
+        If there are blocked requests, this method will execute the callback
+        for the next request in the queue.
+
+        Args:
+            owner: The object that is returning the socket.
+        """
         if owner in self.blocked:
             # died before its time
             self.blocked.remove(owner)
@@ -234,10 +317,35 @@ class Application(BaseApplication.BaseApplication):
     """The main application class for the Grail browser.
 
     This class manages the application's lifecycle, including windows,
-    preferences, and the cache.
+    preferences, and the cache. It serves as the central hub for all browser
+    operations.
+
+    Attributes:
+        root: The root Tkinter window.
+        stylesheet: The stylesheet for rendering HTML.
+        load_images: A flag indicating whether to load images.
+        sq: The SocketQueue instance for managing socket connections.
+        on_exit_methods: A list of methods to call when the application exits.
+        global_history: The global browsing history.
+        login_cache: A cache for login credentials.
+        rexec_cache: A cache for remote execution.
+        url_cache: The main cache manager for URLs.
+        image_cache: The cache for images.
+        auth: The authentication manager.
+        browsers: A list of open browser windows.
+        iostatuspanel: The I/O status panel.
+        in_exception_dialog: A flag to prevent recursive exception dialogs.
+        dingbatimages: A dictionary of dingbat images.
     """
 
     def __init__(self, prefs=None, display=None):
+        """Initializes the Application.
+
+        Args:
+            prefs: An optional preferences object. If not provided, a new
+                one is created.
+            display: An optional string specifying the X display to use.
+        """
         self.root = Tk(className='Grail', screenName=display)
         self.root.withdraw()
         resources = os.path.join(script_dir, "data", "Grail.ad")
@@ -281,29 +389,55 @@ class Application(BaseApplication.BaseApplication):
         self.root.bind_class("Text", "<Alt-Right>", self.dummy_event)
 
     def dummy_event(self, event):
+        """A dummy event handler."""
         pass
 
     def register_on_exit(self, method):
+        """Registers a method to be called on application exit.
+
+        Args:
+            method: The method to register.
+        """
         self.on_exit_methods.append(method)
+
     def unregister_on_exit(self, method):
+        """Unregisters a method from the exit notification list.
+
+        Args:
+            method: The method to unregister.
+        """
         try: self.on_exit_methods.remove(method)
         except ValueError: pass
+
     def exit_notification(self):
+        """Calls all registered exit notification methods."""
         for m in self.on_exit_methods[:]:
             try: m()
             except: pass
 
     def add_browser(self, browser):
+        """Adds a browser window to the application's list.
+
+        Args:
+            browser: The browser window to add.
+        """
         self.browsers.append(browser)
 
     def del_browser(self, browser):
+        """Removes a browser window from the application's list.
+
+        Args:
+            browser: The browser window to remove.
+        """
         try: self.browsers.remove(browser)
         except ValueError: pass
 
     def quit(self):
+        """Quits the application."""
         self.root.quit()
 
     def open_io_status_panel(self):
+        """Opens or reopens the I/O status panel."""
         if not self.iostatuspanel:
             import IOStatusPanel
             self.iostatuspanel = IOStatusPanel.IOStatusPanel(self)
@@ -311,10 +445,13 @@ class Application(BaseApplication.BaseApplication):
             self.iostatuspanel.reopen()
 
     def maybe_quit(self):
+        """Quits the application if it is not embedded and has no open
+        browsers."""
         if not (self.embedded or self.browsers):
             self.quit()
 
     def go(self):
+        """Starts the main event loop for the application."""
         try:
             try:
                 if ilu_tk:
@@ -327,34 +464,92 @@ class Application(BaseApplication.BaseApplication):
             self.exit_notification()
 
     def keep_alive(self):
+        """Exercises the Python interpreter regularly to allow keyboard
+        interrupts to be processed."""
         # Exercise the Python interpreter regularly so keyboard
         # interrupts get through
         self.root.tk.createtimerhandler(KEEPALIVE_TIMER, self.keep_alive)
 
     def get_cached_image(self, url):
+        """Retrieves a cached image.
+
+        Args:
+            url: The URL of the image to retrieve.
+
+        Returns:
+            The cached image object, or None if not found.
+        """
         return self.image_cache.get_image(url)
 
     def set_cached_image(self, url, image, owner=None):
+        """Caches an image.
+
+        Args:
+            url: The URL of the image.
+            image: The image object to cache.
+            owner: The owner of the cached image.
+        """
         self.image_cache.set_image(url, image, owner)
 
     def open_url(self, url, method, params, reload=0, data=None):
+        """Opens a URL, returning a URL API object.
+
+        Args:
+            url: The URL to open.
+            method: The HTTP method to use.
+            params: A dictionary of parameters for the request.
+            reload: A flag indicating whether to bypass the cache.
+            data: Optional data to send with the request.
+
+        Returns:
+            A URL API object.
+        """
         api = self.url_cache.open(url, method, params, reload, data=data)
         api._url_ = url
         return api
 
     def open_url_simple(self, url):
+        """A simplified version of open_url for simple GET requests.
+
+        Args:
+            url: The URL to open.
+
+        Returns:
+            A URLReadWrapper object for the opened URL.
+
+        Raises:
+            IOError: If the URL cannot be opened or the status code is not 200.
+        """
         api = self.open_url(url, 'GET', {})
         errcode, errmsg, meta = api.getmeta()
         if errcode != 200:
-            raise IOError, ('url open error', errcode, errmsg, meta)
+            raise IOError('url open error', errcode, errmsg, meta)
         return URLReadWrapper(api, meta)
 
     def get_cache_keys(self):
-        """For applets."""
+        """Returns a list of keys for all items in the URL cache.
+
+        Returns:
+            A list of strings.
+        """
         return self.url_cache.items.keys()
 
     def decode_pipeline(self, fp, content_encoding, error=1):
-        if self.decode_prog.has_key(content_encoding):
+        """Decodes a file-like object with the given content encoding.
+
+        This method uses external programs (like gzip) to decode the data.
+
+        Args:
+            fp: The file-like object to decode.
+            content_encoding: The content encoding (e.g., 'gzip').
+            error: A flag indicating whether to raise an error if the
+                encoding is not supported.
+
+        Returns:
+            A new file-like object containing the decoded data, or None if
+            the encoding is not supported and `error` is false.
+        """
+        if content_encoding in self.decode_prog:
             prog = self.decode_prog[content_encoding]
             if not prog: return fp
             tfn = tempfile.mktemp()
@@ -390,16 +585,39 @@ class Application(BaseApplication.BaseApplication):
         }
 
     def exception_dialog(self, message="", root=None):
+        """Displays a dialog for the current exception.
+
+        Args:
+            message: An optional message to display in the dialog.
+            root: The parent window for the dialog.
+        """
         exc, val, tb = sys.exc_type, sys.exc_value, sys.exc_traceback
         self.exc_dialog(message, exc, val, tb, root)
 
     def report_callback_exception(self, exc, val, tb, root=None):
+        """Reports an exception that occurred in a callback.
+
+        Args:
+            exc: The exception type.
+            val: The exception value.
+            tb: The traceback object.
+            root: The parent window for the dialog.
+        """
         self.exc_dialog("in a callback function", exc, val, tb, root)
 
     def exc_dialog(self, message, exc, val, tb, root=None):
+        """Displays a dialog for a given exception.
+
+        Args:
+            message: A message to display.
+            exc: The exception type.
+            val: The exception value.
+            tb: The traceback object.
+            root: The parent window for the dialog.
+        """
         if self.in_exception_dialog:
-            print
-            print "*** Recursive exception", message
+            print()
+            print("*** Recursive exception", message)
             import traceback
             traceback.print_exception(exc, val, tb)
             return
@@ -412,6 +630,7 @@ class Application(BaseApplication.BaseApplication):
             self.root.after(0, f)
 
     def _exc_dialog(self, message, exc, val, tb, root=None):
+        """Internal helper to display an exception dialog."""
         # XXX This needn't be a modal dialog --
         # XXX should SafeDialog be changed to support callbacks?
         import SafeDialog
@@ -429,16 +648,30 @@ class Application(BaseApplication.BaseApplication):
             self.traceback_dialog(exc, val, tb)
 
     def traceback_dialog(self, exc, val, tb):
+        """Displays a traceback dialog for an exception.
+
+        Args:
+            exc: The exception type.
+            val: The exception value.
+            tb: The traceback object.
+        """
         # XXX This could actually just create a new Browser window...
         import TbDialog
         TbDialog.TracebackDialog(self.root, exc, val, tb)
 
     def error_dialog(self, exc, msg, root=None):
+        """Displays a generic error dialog.
+
+        Args:
+            exc: The exception type.
+            msg: The error message to display.
+            root: The parent window for the dialog.
+        """
         # Display an error dialog.
         # Return when the user clicks OK
         # XXX This needn't be a modal dialog
         import SafeDialog
-        if type(msg) in (ListType, TupleType):
+        if type(msg) in (list, tuple):
             s = ''
             for item in msg:
                 s = s + ':\n' + str(item)
@@ -465,14 +698,36 @@ class Application(BaseApplication.BaseApplication):
                      }
 
     def clear_dingbat(self, entname):
-        if self.dingbatimages.has_key(entname):
+        """Clears a dingbat image from the cache.
+
+        Args:
+            entname: The name of the dingbat to clear.
+        """
+        if entname in self.dingbatimages:
             del self.dingbatimages[entname]
 
     def set_dingbat(self, entname, entity):
+        """Sets a dingbat image in the cache.
+
+        Args:
+            entname: The name of the dingbat.
+            entity: The dingbat entity to set.
+        """
         self.dingbatimages[entname] = entity
 
     def load_dingbat(self, entname):
-        if self.dingbatimages.has_key(entname):
+        """Loads a dingbat image.
+
+        If the dingbat is not in the cache, this method will try to load it
+        from a GIF file.
+
+        Args:
+            entname: The name of the dingbat to load.
+
+        Returns:
+            The dingbat image object, or None if it cannot be loaded.
+        """
+        if entname in self.dingbatimages:
             return self.dingbatimages[entname]
         gifname = grailutil.which(entname + '.gif', self.iconpath)
         if gifname:

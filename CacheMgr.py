@@ -1,6 +1,6 @@
 from Cache import SharedItem, SharedAPI
 from Assert import Assert
-import urlparse
+from urllib import parse as urlparse
 import string
 import os
 import time
@@ -31,6 +31,14 @@ except ImportError:
 
 
 def parse_cache_control(s):
+    """Parses a Cache-Control header.
+
+    Args:
+        s: The value of the Cache-Control header.
+
+    Returns:
+        A list of (directive, value) tuples.
+    """
     def parse_directive(s):
         i = string.find(s, '=')
         if i >= 0:
@@ -40,39 +48,28 @@ def parse_cache_control(s):
     return map(parse_directive, elts)
 
 class CacheManager:
-    """Manages one or more caches in hierarchy.
+    """Manages the cache.
 
-    The only methods that should be used by the application is
-    open() and add_cache(). Other methods are intended for use by the
-    cache itself.  
+    This class provides a high-level interface to the caching system. It
+    manages a disk cache, a list of active items, and freshness policies.
 
-    overview of CacheManager and Cache organization
-
-    CM has list of caches (could have more than one cache)
-    
-    items = {}: contains an entry for all the URLs in all the
-    caches. value is a cache entry object (cf DiskCacheEntry
-    below), has a get method that returns an protocol API object
-
-    active = {}: contains an entry for each URL that is open in a
-    browser window. this is the shared object list. if there is a
-    request for an active page, a second SharedAPI for the same object
-    is returned. the list stores SharedItems, which contain a reference
-    count; when that cound reaches zero, it removes itself from the
-    list. 
-
-    freshness: CM is partly responsible for checking the freshness of
-    pages. (pages with explicit TTL know when they expire.) freshness
-    tests are preference driven, can be never, per session, or per
-    time-unit. on each open, check to see if we should send an
-    If-Mod-Since to the original server (based on fresh_p method).
-
+    Attributes:
+        app: The main application object.
+        caches: A list of cache objects.
+        items: A dictionary of all items in the cache.
+        active: A dictionary of currently active items.
+        disk: The disk cache object.
+        fresh_p: A function that determines if an item is fresh.
+        session_freshen: A list of items that have been freshened in the
+            current session.
     """
     
     def __init__(self, app):
-        """Initializes cache manager, creates disk cache.
+        """Initializes the CacheManager.
 
-        Basic disk cache characteristics loaded from    """
+        Args:
+            app: The main application object.
+        """
         
         self.app = app
         self.caches = []
@@ -91,10 +88,12 @@ class CacheManager:
             self.app.register_on_exit(lambda save=self.save_cache_state:save())
 
     def save_cache_state(self):
+        """Saves the state of all caches."""
         for cache in self.caches:
             cache._checkpoint_metadata()
 
     def update_prefs(self):
+        """Updates the cache manager's settings from the preferences."""
         self.set_freshness_test()
         size = self.caches[0].max_size = self.app.prefs.GetInt('disk-cache',
                                                                'size') \
@@ -105,14 +104,12 @@ class CacheManager:
             self.reset_disk_cache(size, new_dir)
 
     def reset_disk_cache(self, size=None, dir=None, flush_log=0):
-        """Close the current disk cache and open a new one.
+        """Closes the current disk cache and opens a new one.
 
-        Used primarily to change the cache directory or to clear
-        everything out of the cache when it is erased. The flush_log
-        argument is passed to DiskCache.close(), allowing this routine
-        to be used in both of the cases described. On erase, we want
-        to write a new, empty log; on change directory, we want to
-        keep the old log intact.
+        Args:
+            size: The new size of the cache.
+            dir: The new directory for the cache.
+            flush_log: A flag indicating whether to flush the log.
         """
         if not size:
             size = self.disk.max_size
@@ -122,6 +119,7 @@ class CacheManager:
         self.disk = DiskCache(self, size, dir)
         
     def set_freshness_test(self):
+        """Sets the freshness test function based on user preferences."""
         # read preferences to determine when pages should be checked
         # for freshness -- once per session, every n secs, or never
         fresh_type = self.app.prefs.Get('disk-cache', 'freshness-test-type')
@@ -143,15 +141,20 @@ class CacheManager:
     def open(self, url, mode, params, reload=0, data=None):
         """Opens a URL and returns a protocol API for it.
 
-        This is the method called by the Application to load a
-        URL. First, it checks the shared object list (and returns a
-        second reference to a URL that is currently active). Then it
-        calls open routines specialized for GET or POST.
+        Args:
+            url: The URL to open.
+            mode: The request mode (e.g., 'GET').
+            params: The request parameters.
+            reload: A flag indicating a forced reload.
+            data: The data for a POST request.
+
+        Returns:
+            A SharedAPI object.
         """
 
         key = self.url2key(url, mode, params)
         if mode == 'GET':
-            if self.active.has_key(key):
+            if key in self.active:
                 # XXX This appeared to be a bad idea!
 ##              if reload:
 ##                  self.active[key].reset()
@@ -161,24 +164,25 @@ class CacheManager:
             return self.open_post(key, url, mode, params, reload, data)
 
     def open_get(self, key, url, mode, params, reload, data):
-        """open() method specialized for GET request.
+        """Opens a URL with a GET request.
 
-        Performs several steps:
-        1. Check for the URL in the cache.
-        2. If it is in the cache,
-              1. Create a SharedItem for it.
-              2. Reload the cached copy if reload flag is on.
-              3. Refresh the page if the freshness test fails.
-           If it isn't in the cache,
-              1. Create a SharedItem (which will create a CacheEntry 
-              after the page has been loaded.)
-        3. call activate(), which adds the URL to the shared object
-        list and creates a SharedAPI for the item
+        This method handles caching, reloading, and refreshing.
+
+        Args:
+            key: The cache key.
+            url: The URL to open.
+            mode: The request mode.
+            params: The request parameters.
+            reload: A flag indicating a forced reload.
+            data: The data for a POST request.
+
+        Returns:
+            A SharedAPI object.
         """
 
         try:
             api = self.cache_read(key)
-        except CacheReadFailed, cache:
+        except CacheReadFailed as cache:
             cache.evict(key)
             api = None
         if api:
@@ -201,55 +205,89 @@ class CacheManager:
         return self.activate(item)
 
     def open_post(self, key, url, mode, params, reload, data):
-        """Open a URL with a POST request. Do not cache."""
+        """Opens a URL with a POST request. These are not cached."""
         key = self.url2key(url, mode, params)
         return self.activate(SharedItem(url, mode, params, None, key,
                                        data))
 
     def activate(self,item):
-        """Adds a SharedItem to the shared object list and returns SharedAPI.
+        """Adds a SharedItem to the active list and returns a SharedAPI for it.
+
+        Args:
+            item: The SharedItem to activate.
+
+        Returns:
+            A SharedAPI object.
         """
         self.active[item.key] = item
         return SharedAPI(self.active[item.key])
 
     def deactivate(self,key):
-        """Removes a SharedItem from the shared object list."""
-        if self.active.has_key(key):
+        """Removes a SharedItem from the active list.
+
+        Args:
+            key: The cache key of the item to deactivate.
+        """
+        if key in self.active:
             del self.active[key]
 
     def add_cache(self, cache):
-        """Called by cache to notify manager this it is ready."""
+        """Adds a cache to the manager.
+
+        Args:
+            cache: The cache object to add.
+        """
         self.caches.append(cache)
 
     def close_cache(self, cache):
+        """Removes a cache from the manager.
+
+        Args:
+            cache: The cache object to remove.
+        """
         self.caches.remove(cache)
 
     def cache_read(self,key):
-        """Checks cache for URL. Returns protocol API on hit.
+        """Reads an item from the cache.
 
-        Looks for a cache entry object in the items dictionary. If the
-        CE object is found, call its method get() to create a protocol
-        API for the item.
+        Args:
+            key: The cache key of the item to read.
+
+        Returns:
+            A protocol API object for the item, or None if not found.
         """
-        if self.items.has_key(key):
+        if key in self.items:
             return self.items[key].get()
         else:
             return None
 
     def touch(self,key=None,url=None,refresh=0):
-        """Calls touch() method of CacheEntry object."""
+        """Updates the last-used timestamp for a cache item.
+
+        Args:
+            key: The cache key of the item.
+            url: The URL of the item (alternative to key).
+            refresh: A flag indicating a refresh.
+        """
         if url:
             key = self.url2key(url,'GET',{})
-        if key and self.items.has_key(key):
+        if key and key in self.items:
             self.items[key].touch(refresh)
 
     def expire(self,key):
-        """Should not be used."""
+        """Expires a cache item. Should not be used."""
         Assert('night' == 'day')
-        Assert(self.items.has_key(key))
+        Assert(key in self.items)
         self.items[key].evict()
 
     def delete(self, keys, evict=1):
+        """Deletes one or more items from the cache.
+
+        Args:
+            keys: A list of cache keys to delete.
+            evict: A flag indicating whether to evict the items from the
+                underlying cache.
+        """
         if type(keys) != type([]):
             keys = [keys]
 
@@ -267,32 +305,33 @@ class CacheManager:
                     pass
 
     def add(self,item,reload=0):
-        """If item is not in the cache and is allowed to be cached, add it. 
+        """Adds an item to the cache.
+
+        Args:
+            item: The SharedItem to add.
+            reload: A flag indicating a reload.
         """
         try:
-            if not self.items.has_key(item.key) and self.okay_to_cache_p(item):
+            if item.key not in self.items and self.okay_to_cache_p(item):
                 self.caches[0].add(item)
             elif reload == 1:
                 self.caches[0].update(item)
-        except CacheFileError, err_tuple:
+        except CacheFileError as err_tuple:
             (file, err) = err_tuple
-            print "error adding item %s (file %s): %s" % (item.url,
-                                                          file, err)
+            print("error adding item %s (file %s): %s" % (item.url,
+                                                          file, err))
 
     # list of protocols that we can cache
     cache_protocols = ['http', 'ftp', 'hdl']
 
     def okay_to_cache_p(self,item):
-        """Check if this item should be cached.
+        """Checks if an item is okay to cache.
 
-        This routine probably (definitely) needs more thought.
-        Currently, we do not cache URLs with the following properties:
-        1. The scheme is not on the list of cacheable schemes.
-        2. The item is bigger than a quarter of the cache size.
-        3. The 'Pragma: no-cache' header was sent
-        4. The 'Expires: 0' header was sent
-        5. The URL includes a query part '?'
-        
+        Args:
+            item: The SharedItem to check.
+
+        Returns:
+            True if the item can be cached, False otherwise.
         """
 
         if len(self.caches) < 1:
@@ -314,18 +353,18 @@ class CacheManager:
         code, msg, params = item.meta
 
         # don't cache things that don't want to be cached
-        if params.has_key('pragma'):
+        if 'pragma' in params:
             pragma = params['pragma']
             if pragma == 'no-cache':
                 return 0
 
-        if params.has_key('expires'):
+        if 'expires' in params:
             expires = params['expires']
             if expires == 0:
                 return 0
 
         # respond to http/1.1 cache control directives
-        if params.has_key('cache-control'):
+        if 'cache-control' in params:
             for k, v in parse_cache_control(params['cache-control']):
                 if k in  ('no-cache', 'no-store'):
                     return 0
@@ -335,14 +374,29 @@ class CacheManager:
         return 1
 
     def fresh_every_session(self,entry):
-        """Refresh the page once per session"""
+        """Checks if an item is fresh for the current session.
+
+        Args:
+            entry: The cache entry to check.
+
+        Returns:
+            True if the item is fresh, False otherwise.
+        """
         if not entry.key in self.session_freshen:
             self.session_freshen.append(entry.key)
             return 0
         return 1
 
     def fresh_periodic(self,entry,max_age):
-        """Refresh it max_age seconds have passed since it was loaded."""
+        """Checks if an item is fresh based on a periodic timer.
+
+        Args:
+            entry: The cache entry to check.
+            max_age: The maximum age in seconds.
+
+        Returns:
+            True if the item is fresh, False otherwise.
+        """
         try:
             age = time.time() - entry.date.get_secs()
             if age > max_age:
@@ -353,13 +407,15 @@ class CacheManager:
             return 1
 
     def url2key(self, url, mode, params):
-        """Normalize a URL for use as a caching key.
+        """Normalizes a URL for use as a cache key.
 
-        - change the hostname to all lowercase
-        - remove the port if it is the scheme's default port
-        - reformat the port using %d
-        - get rid of the fragment identifier
+        Args:
+            url: The URL to normalize.
+            mode: The request mode.
+            params: The request parameters.
 
+        Returns:
+            The normalized URL as a string.
         """
         scheme, netloc, path, params, query, fragment = urlparse.urlparse(url)
         i = string.find(netloc, '@')

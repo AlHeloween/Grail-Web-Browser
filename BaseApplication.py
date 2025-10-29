@@ -28,7 +28,17 @@ import protocols.ProtocolAPI
 
 
 class BaseApplication(grailbase.app.Application):
+    """A base class for Grail applications.
+
+    This class sets up the extension loaders for various parts of the
+    application, such as HTML tags, MIME types, and protocols.
+    """
     def __init__(self, prefs=None):
+        """Initializes the BaseApplication.
+
+        Args:
+            prefs: An optional preferences object.
+        """
         grailbase.app.Application.__init__(self, prefs)
         loader = sgml.extloader.TagExtensionLoader(html)
         self.add_loader("html.viewer", loader)
@@ -45,6 +55,15 @@ class BaseApplication(grailbase.app.Application):
         self.__extensions = {}
 
     def find_type_extension(self, package, mimetype):
+        """Finds a handler for a given MIME type within a package.
+
+        Args:
+            package: The name of the package to search (e.g., 'filetypes').
+            mimetype: The MIME type to find a handler for.
+
+        Returns:
+            The handler object, or None if not found.
+        """
         handler = None
         try:
             loader = self.get_loader(package)
@@ -60,6 +79,15 @@ class BaseApplication(grailbase.app.Application):
         return handler
 
     def find_extension(self, subdir, module):
+        """Finds an extension module within a subdirectory.
+
+        Args:
+            subdir: The name of the subdirectory (loader) to search.
+            module: The name of the module to find.
+
+        Returns:
+            The module object, or None if not found.
+        """
         try:
             return self.get_loader(subdir).get(module)
         except KeyError:
